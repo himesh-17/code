@@ -7,6 +7,13 @@ export interface User {
   team: string
 }
 
+export const ROLE_RANK: Record<User['role'], number> = {
+  creator: 0,
+  reviewer: 1,
+  manager: 2,
+  admin: 3,
+}
+
 export interface Finding {
   id: number
   content_id: number
@@ -127,6 +134,7 @@ export const msg = (e: unknown): string =>
   e instanceof Error ? e.message : String(e)
 
 let refreshInFlight: Promise<boolean> | null = null
+const inFlightGet = new Map<string, Promise<unknown>>()
 
 async function tryRefresh(): Promise<boolean> {
   if (!refreshInFlight) {
@@ -156,34 +164,48 @@ async function tryRefresh(): Promise<boolean> {
 
 export async function api<T = unknown>(
   path: string,
-  opts: { method?: string; body?: unknown; retry?: boolean } = {},
+  opts: { method?: string; body?: unknown; retry?: boolean; noDedupe?: boolean } = {},
 ): Promise<T> {
-  const s = loadAuth()
-  const headers: Record<string, string> = {}
-  if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
-  if (s) headers['Authorization'] = `Bearer ${s.access_token}`
-
-  const r = await fetch(path, {
-    method: opts.method ?? (opts.body !== undefined ? 'POST' : 'GET'),
-    headers,
-    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-  })
-
-  if (r.status === 401 && s && opts.retry !== false && await tryRefresh()) {
-    return api<T>(path, { ...opts, retry: false })
+  const method = opts.method ?? (opts.body !== undefined ? 'POST' : 'GET')
+  if (method === 'GET' && !opts.noDedupe && inFlightGet.has(path)) {
+    return inFlightGet.get(path) as Promise<T>
   }
-  if (!r.ok) {
-    let msg = `${r.status}`
-    try {
-      const d = await r.json()
-      msg = d.detail
-        ? (typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail))
-        : msg
-    } catch { /* keep status */ }
-    throw new ApiError(r.status, msg)
+
+  const reqPromise = (async () => {
+    const s = loadAuth()
+    const headers: Record<string, string> = {}
+    if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
+    if (s) headers['Authorization'] = `Bearer ${s.access_token}`
+
+    const r = await fetch(path, {
+      method,
+      headers,
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    })
+
+    if (r.status === 401 && s && opts.retry !== false && await tryRefresh()) {
+      return api<T>(path, { ...opts, retry: false, noDedupe: true })
+    }
+    if (!r.ok) {
+      let msg = `${r.status}`
+      try {
+        const d = await r.json()
+        msg = d.detail
+          ? (typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail))
+          : msg
+      } catch { /* keep status */ }
+      throw new ApiError(r.status, msg)
+    }
+    if (r.status === 204) return undefined as T
+    return r.json() as Promise<T>
+  })()
+
+  if (method === 'GET' && !opts.noDedupe) {
+    inFlightGet.set(path, reqPromise)
+    reqPromise.finally(() => inFlightGet.delete(path))
   }
-  if (r.status === 204) return undefined as T
-  return r.json() as Promise<T>
+
+  return reqPromise
 }
 
 /** Multipart upload (image creatives) — same auth + refresh as api(). */

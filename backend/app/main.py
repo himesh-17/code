@@ -1,4 +1,5 @@
 """BrandGuard AI — FastAPI app. One file, auto /docs for the frontend."""
+import contextvars
 import io
 import re
 import time
@@ -28,6 +29,8 @@ from .auth import current_user, require_role
 from .state import LOCKED, require_transition
 from .kb import router as kb_router
 from .workflow import router as workflow_router
+
+request_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="")
 
 
 @asynccontextmanager
@@ -60,6 +63,18 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 @app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    req_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+    token = request_id_ctx.set(req_id)
+    try:
+        resp = await call_next(request)
+        resp.headers["X-Request-ID"] = req_id
+        return resp
+    finally:
+        request_id_ctx.reset(token)
+
+
+@app.middleware("http")
 async def security_headers(request: Request, call_next):
     resp = await call_next(request)
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -67,6 +82,8 @@ async def security_headers(request: Request, call_next):
     resp.headers.setdefault("Referrer-Policy", "no-referrer")
     # no-store: findings carry sensitive brand copy — never cache
     resp.headers.setdefault("Cache-Control", "no-store")
+    resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     return resp
 
 
@@ -74,31 +91,49 @@ async def security_headers(request: Request, call_next):
 async def unhandled(request: Request, exc: Exception):
     """Never leak stack traces or DB errors to the client."""
     import logging
+    req_id = request_id_ctx.get() or "unknown"
     logging.getLogger("brandguard").exception(
-        "unhandled error on %s %s", request.method, request.url.path)
+        "unhandled error [%s] on %s %s", req_id, request.method, request.url.path)
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error. "
-                           "The incident was logged with request context."})
+                           "The incident was logged with request context.",
+                 "request_id": req_id})
 
-# --- rate limiting: in-memory sliding window per IP on /review -------------
-# ponytail: per-process memory — correct for one instance; move to Redis
-# if you ever run multiple workers/replicas behind a load balancer.
+# --- rate limiting: in-memory sliding window per IP on /review and auth -------------
 _hits: dict[str, deque] = defaultdict(deque)
+_last_clean: float = time.time()
+
+
+def _check_rate_limit(key: str, limit: int, window_sec: int = 60, scope: str = "Request") -> None:
+    global _last_clean
+    now = time.time()
+    # periodic cleanup of stale empty entries every 5 minutes to prevent memory leak
+    if now - _last_clean > 300:
+        stale_keys = [k for k, q in _hits.items() if not q or now - q[-1] > window_sec]
+        for k in stale_keys:
+            del _hits[k]
+        _last_clean = now
+
+    q = _hits[key]
+    while q and now - q[0] > window_sec:
+        q.popleft()
+    if len(q) >= limit:
+        raise HTTPException(
+            429, f"{scope} rate limit exceeded "
+                 f"({limit}/min per IP). "
+                 "Try again shortly.")
+    q.append(now)
 
 
 def rate_limit(request: Request) -> None:
-    now = time.time()
     ip = request.client.host if request.client else "unknown"
-    q = _hits[ip]
-    while q and now - q[0] > 60:
-        q.popleft()
-    if len(q) >= settings.review_rate_per_min:
-        raise HTTPException(
-            429, "Review rate limit exceeded "
-                 f"({settings.review_rate_per_min}/min per IP). "
-                 "Try again in a minute.")
-    q.append(now)
+    _check_rate_limit(f"review:{ip}", settings.review_rate_per_min, 60, "Review")
+
+
+def auth_rate_limit(request: Request) -> None:
+    ip = request.client.host if request.client else "unknown"
+    _check_rate_limit(f"auth:{ip}", settings.auth_rate_per_min, 60, "Authentication")
 
 
 @app.get("/health")
@@ -116,19 +151,20 @@ def health() -> dict:
 
 # ---------- auth (full JWT) ----------
 class LoginBody(BaseModel):
-    email: str
-    password: str
+    email: str = Field(..., max_length=254)
+    password: str = Field(..., max_length=128)
 
 
 class UserCreate(BaseModel):
-    email: str
-    password: str = Field(min_length=8)
+    email: str = Field(..., max_length=254)
+    password: str = Field(min_length=8, max_length=128)
     role: Literal["creator", "reviewer", "manager", "admin"] = "creator"
-    team: str = "marketing"
+    team: str = Field(default="marketing", max_length=100)
 
 
 @app.post("/auth/login")
-def login(body: LoginBody):
+def login(body: LoginBody, request: Request):
+    auth_rate_limit(request)
     with db.get() as conn:
         user = db.one(conn, "SELECT * FROM users WHERE email=? AND active=1",
                       (body.email.lower().strip(),))
@@ -144,7 +180,8 @@ def login(body: LoginBody):
 
 
 @app.post("/auth/refresh")
-def refresh(body: dict = Body(...)):
+def refresh(request: Request, body: dict = Body(...)):
+    auth_rate_limit(request)
     token = body.get("refresh_token", "")
     if not token:
         raise HTTPException(400, "refresh_token required")
@@ -535,8 +572,19 @@ def upload_image(cid: int, file: UploadFile = File(...),
         from PIL import Image
         probe = Image.open(io.BytesIO(data))
         probe.verify()
+        w, h = probe.size
+        if w > 8192 or h > 8192 or (w * h) > 25_000_000:
+            raise HTTPException(400, "image dimensions exceed maximum allowable limit (8192x8192)")
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(400, "file is not a valid image")
+
+    # SVG script injection protection
+    if Path(file.filename or "").suffix.lower() == ".svg" or "svg" in (file.content_type or "").lower():
+        raw_text = data.decode("utf-8", errors="ignore").lower()
+        if "<script" in raw_text or "javascript:" in raw_text or "onload=" in raw_text or "onerror=" in raw_text:
+            raise HTTPException(400, "SVG contains disallowed active scripts")
 
     with db.get() as conn:
         if not db.one(conn, "SELECT id FROM content WHERE id=?", (cid,)):

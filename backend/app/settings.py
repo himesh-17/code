@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     upload_dir: str = str(BASE_DIR / "data" / "uploads")
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
     review_rate_per_min: int = 10
+    auth_rate_per_min: int = 600
     max_upload_bytes: int = 5 * 1024 * 1024
     max_content_chars: int = 20_000
 

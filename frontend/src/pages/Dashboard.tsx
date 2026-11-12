@@ -1,9 +1,10 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import {
   api, loadAuth, msg, type Analytics, type Content, type TrendResponse,
   type User,
 } from '../api'
-import { Bar, Badge, Empty, StatusChip, Sparkline, Skeleton, heatStyle } from '../ui'
+import { Bar, Badge, Empty, StatusChip, Sparkline, Skeleton } from '../ui'
+import { heatStyle } from '../lib/styles'
 import { toast } from 'sonner'
 import {
   AlertCircle, AlertTriangle, CheckCircle2, Cpu, FileText, TrendingUp,
@@ -104,6 +105,19 @@ function PersonalDashboard({ user }: { user: User }) {
       })
   }, [])
 
+  const { mine, approved, pending, changes, rate, recent } = useMemo(() => {
+    if (!rows) return { mine: [] as Content[], approved: 0, pending: 0, changes: 0, rate: 0, recent: [] as number[] }
+    const m = user.role === 'creator'
+      ? rows.filter((r) => r.created_by === user.email)
+      : rows
+    const a = m.filter((r) => r.status === 'approved' || r.status === 'published').length
+    const p = m.filter((r) => ['draft', 'review', 'peer_review'].includes(r.status)).length
+    const c = m.filter((r) => r.status === 'changes').length
+    const rt = m.length ? Math.round((a / m.length) * 100) : 0
+    const rc = dailyCounts(m, 7)
+    return { mine: m, approved: a, pending: p, changes: c, rate: rt, recent: rc }
+  }, [rows, user.role, user.email])
+
   if (err) {
     return (
       <div role="alert" className="text-danger text-sm p-4 bg-danger/10 rounded-lg border border-danger/30">
@@ -112,16 +126,6 @@ function PersonalDashboard({ user }: { user: User }) {
     )
   }
   if (!rows) return <Loading label="Loading your workspace" />
-
-  // Creators see their own submissions; reviewers see the whole queue.
-  const mine = user.role === 'creator'
-    ? rows.filter((r) => r.created_by === user.email)
-    : rows
-  const approved = mine.filter((r) => r.status === 'approved' || r.status === 'published').length
-  const pending = mine.filter((r) => ['draft', 'review', 'peer_review'].includes(r.status)).length
-  const changes = mine.filter((r) => r.status === 'changes').length
-  const rate = mine.length ? Math.round((approved / mine.length) * 100) : 0
-  const recent = dailyCounts(mine, 7)
 
   return (
     <div className="space-y-6">
@@ -227,10 +231,11 @@ function ManagerDashboard() {
   }, [])
 
   useEffect(() => {
-    setTrend(null)
+    let active = true
     api<TrendResponse>(`/analytics/trend?days=${days}`)
-      .then(setTrend)
+      .then((res) => { if (active) setTrend(res) })
       .catch(() => { /* chart is supplementary; KPIs still render */ })
+    return () => { active = false }
   }, [days])
 
   if (err) {

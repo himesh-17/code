@@ -149,6 +149,7 @@ def test_audit_chain_verifies_and_detects_tampering():
                       ).json()["ok"] is True
     # tamper with a historical row directly in the DB
     conn = sqlite3.connect(settings.database_path)
+    orig_actor = conn.execute("SELECT actor FROM audit WHERE id=1").fetchone()[0]
     conn.execute("UPDATE audit SET actor='evil' WHERE id=1")
     conn.commit()
     conn.close()
@@ -156,8 +157,7 @@ def test_audit_chain_verifies_and_detects_tampering():
     assert bad["ok"] is False and bad["broken_at"] == 1
     # restore for other tests
     conn = sqlite3.connect(settings.database_path)
-    conn.execute("UPDATE audit SET actor='creator@brandguard.demo' "
-                 "WHERE id=1")
+    conn.execute("UPDATE audit SET actor=? WHERE id=1", (orig_actor,))
     conn.commit()
     conn.close()
     assert client.get("/audit/verify", headers=hdr("manager")

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, ingestGuidelines, msg, type User } from '../api'
 import { ROLE_RANK } from '../App'
-import { Badge, Btn, Empty, Field, inputCls } from '../ui'
+import { Badge, Btn, Empty, Field } from '../ui'
+import { inputCls } from '../lib/styles'
 import { ChevronDown, Download, FileText, Plus, Trash2, X } from 'lucide-react'
 
 type Kind = 'guidelines' | 'glossary' | 'facts' | 'colors'
@@ -56,8 +57,13 @@ export default function KB({ user }: { user: User }) {
       .catch(() => setDocs([]))
   }, [])
 
-  useEffect(() => { load(kind); setDraft({}); setAdding(false) },
-            [kind, load])
+  const switchKind = (k: Kind) => {
+    setKind(k)
+    setDraft({})
+    setAdding(false)
+  }
+
+  useEffect(() => { load(kind) }, [kind, load])
 
   useEffect(() => { if (canWrite) loadDocs() }, [canWrite, loadDocs])
 
@@ -195,7 +201,7 @@ async function ingestFile() {
         {KINDS.map((k) => (
           <button
             key={k.id}
-            onClick={() => setKind(k.id)}
+            onClick={() => switchKind(k.id)}
             className={`px-4 py-2.5 text-xs uppercase tracking-wider font-semibold border-b-2 -mb-px transition-all duration-200 cursor-pointer flex items-center gap-2 shrink-0 ${
               kind === k.id
                 ? 'border-accent text-accent font-bold bg-accent/5'

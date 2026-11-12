@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Sparkles, ArrowRight, ArrowLeft, X,
   CheckCircle2, Compass, GripHorizontal
@@ -8,7 +8,7 @@ import { type User } from '@/api'
 type Role = 'guest' | 'creator' | 'reviewer' | 'manager' | 'admin'
 type Advance = 'manual' | 'click' | 'login' | 'route'
 
-export interface TourStep {
+interface TourStep {
   id: string
   title: string
   subtitle: string
@@ -24,7 +24,7 @@ export interface TourStep {
   signOut?: boolean
 }
 
-export const AUTO_TOUR_STEPS: TourStep[] = [
+const AUTO_TOUR_STEPS: TourStep[] = [
   {
     id: 'hero-welcome',
     title: 'Welcome to BrandGuard AI',
@@ -311,22 +311,26 @@ export default function AutoSpotlightTour({
 
   // Always restart at step 0 when the tour is (re)opened on the hero.
   useEffect(() => {
-    const isHero = typeof window !== 'undefined' && (
-      window.location.hash.replace(/^#\/?/, '').split('/')[0] === 'hero' || window.location.hash === ''
-    )
-    if (isActive && isHero) {
-      setStepIndex(0)
-      sessionStorage.setItem('brandguard_tour_step', '0')
+    const onHash = () => {
+      const isHero = typeof window !== 'undefined' && (
+        window.location.hash.replace(/^#\/?/, '').split('/')[0] === 'hero' || window.location.hash === ''
+      )
+      if (isActive && isHero) {
+        setStepIndex(0)
+        sessionStorage.setItem('brandguard_tour_step', '0')
+      }
     }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
   }, [isActive])
 
-  const finish = () => {
+  const finish = useCallback(() => {
     sessionStorage.removeItem('brandguard_tour_step')
     onSignOut()
     onClose()
-  }
+  }, [onSignOut, onClose])
 
-  const enterStep = async (idx: number) => {
+  const enterStep = useCallback(async (idx: number) => {
     const step = AUTO_TOUR_STEPS[idx]
     updateStep(idx)
     if (step.signOut) {
@@ -338,14 +342,14 @@ export default function AutoSpotlightTour({
       await onSwitchRole(step.role as 'creator' | 'reviewer' | 'manager' | 'admin')
     }
     if (step.route) window.location.hash = step.route
-  }
+  }, [currentUser?.role, onSignOut, onSwitchRole])
 
-  const advanceTo = (idx: number) => {
+  const advanceTo = useCallback((idx: number) => {
     if (idx >= AUTO_TOUR_STEPS.length) { finish(); return }
     if (advancingRef.current) return
     advancingRef.current = true
     void enterStep(idx)
-  }
+  }, [finish, enterStep])
 
   // Advance when the expected role has logged in via the demo button.
   useEffect(() => {
@@ -354,7 +358,7 @@ export default function AutoSpotlightTour({
     if (step.advance === 'login' && step.expectRole && currentUser?.role === step.expectRole) {
       advanceTo(stepIndex + 1)
     }
-  }, [isActive, currentUser, stepIndex])
+  }, [isActive, currentUser, stepIndex, advanceTo])
 
   // Advance after a successful submission navigates into the detail route.
   useEffect(() => {
@@ -371,7 +375,7 @@ export default function AutoSpotlightTour({
     window.addEventListener('hashchange', check)
     const t = setInterval(check, 400)
     return () => { window.removeEventListener('hashchange', check); clearInterval(t) }
-  }, [isActive, stepIndex])
+  }, [isActive, stepIndex, advanceTo])
 
   // Advance when the user clicks the highlighted interactive target.
   useEffect(() => {
@@ -387,7 +391,7 @@ export default function AutoSpotlightTour({
     }
     document.addEventListener('click', onClick, true)
     return () => document.removeEventListener('click', onClick, true)
-  }, [isActive, stepIndex])
+  }, [isActive, stepIndex, advanceTo])
 
   // Scroll the target into view once per step.
   useEffect(() => {
@@ -398,7 +402,7 @@ export default function AutoSpotlightTour({
 
   // Track the target's position while it is on screen.
   useEffect(() => {
-    if (!isActive) { setHighlightRect(null); return }
+    if (!isActive) return
     const updateRect = () => {
       if (!currentStep.targetSelector) { setHighlightRect(null); return }
       const el = document.querySelector(currentStep.targetSelector)
@@ -420,6 +424,7 @@ export default function AutoSpotlightTour({
       clearInterval(interval)
       window.removeEventListener('resize', updateRect)
       window.removeEventListener('scroll', updateRect)
+      setHighlightRect(null)
     }
   }, [isActive, currentStep, stepIndex])
 

@@ -17,6 +17,7 @@ export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
   const [busy, setBusy] = useState(false)
 
   async function submit(e?: { email: string; pw: string }) {
+    if (busy) return
     const em = e?.email ?? email
     const password = e?.pw ?? pw
     setBusy(true)

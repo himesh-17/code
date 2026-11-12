@@ -220,9 +220,15 @@ CREATE TABLE IF NOT EXISTS kb_chunk (
 CREATE INDEX IF NOT EXISTS idx_finding_content ON finding(content_id);
 CREATE INDEX IF NOT EXISTS idx_finding_content_sup ON finding(content_id, superseded);
 CREATE INDEX IF NOT EXISTS idx_content_status  ON content(status);
+CREATE INDEX IF NOT EXISTS idx_content_created ON content(created_at);
+CREATE INDEX IF NOT EXISTS idx_finding_created ON finding(created_at, superseded);
 CREATE INDEX IF NOT EXISTS idx_user_email      ON users(email);
 CREATE INDEX IF NOT EXISTS idx_version_content ON content_version(content_id);
 CREATE INDEX IF NOT EXISTS idx_comment_content ON comment(content_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_user    ON refresh_token(user_id);
+CREATE INDEX IF NOT EXISTS idx_kb_chunk_source ON kb_chunk(source);
+CREATE INDEX IF NOT EXISTS idx_audit_action    ON audit(action);
+CREATE INDEX IF NOT EXISTS idx_audit_content   ON audit(content_id);
 """
 
 
@@ -231,9 +237,12 @@ def get():
         return _PGConnection()
     from pathlib import Path
     Path(settings.database_path).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(settings.database_path)
+    conn = sqlite3.connect(settings.database_path, timeout=10.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 
@@ -264,6 +273,21 @@ def _migrate(conn: sqlite3.Connection) -> None:
         cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
         if col not in cols:
             conn.execute(ddl)
+    for idx_ddl in (
+        "CREATE INDEX IF NOT EXISTS idx_finding_content ON finding(content_id)",
+        "CREATE INDEX IF NOT EXISTS idx_finding_gate ON finding(content_id, superseded, severity, accepted)",
+        "CREATE INDEX IF NOT EXISTS idx_content_status ON content(status)",
+        "CREATE INDEX IF NOT EXISTS idx_content_created ON content(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_finding_created ON finding(created_at, superseded)",
+        "CREATE INDEX IF NOT EXISTS idx_user_email ON users(email)",
+        "CREATE INDEX IF NOT EXISTS idx_version_content ON content_version(content_id)",
+        "CREATE INDEX IF NOT EXISTS idx_comment_content ON comment(content_id)",
+        "CREATE INDEX IF NOT EXISTS idx_refresh_user ON refresh_token(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_kb_chunk_source ON kb_chunk(source)",
+        "CREATE INDEX IF NOT EXISTS idx_audit_action ON audit(action)",
+        "CREATE INDEX IF NOT EXISTS idx_audit_content ON audit(content_id)",
+    ):
+        conn.execute(idx_ddl)
 
 
 def _rename_legacy_user(conn: sqlite3.Connection) -> None:

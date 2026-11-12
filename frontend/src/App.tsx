@@ -1,20 +1,42 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { loadAuth, login, logout, type User } from './api'
-import Login from './pages/Login'
-import Dashboard from './pages/Dashboard'
-import Review from './pages/Review'
-import KB from './pages/KB'
-import AdminUsersPage from './pages/AdminUsersPage'
+import { loadAuth, login, logout, ROLE_RANK, type User } from './api'
 import { BrandLogo } from './components/ui/BrandLogo'
-import RoleTourGuide from './components/ui/RoleTourGuide'
-import AutoSpotlightTour from './components/ui/AutoSpotlightTour'
 import { Toaster, toast } from 'sonner'
 import {
   ArrowRight, BookOpen, Command, Compass, FileCheck2, LayoutDashboard, LogOut,
   Menu, Search, Shield, X,
 } from 'lucide-react'
 
+export { ROLE_RANK } from './api'
+
 const DotGlobeHeroDemo = lazy(() => import('./components/ui/demo'))
+const Login = lazy(() => import('./pages/Login'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Review = lazy(() => import('./pages/Review'))
+const KB = lazy(() => import('./pages/KB'))
+const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'))
+const RoleTourGuide = lazy(() => import('./components/ui/RoleTourGuide'))
+const AutoSpotlightTour = lazy(() => import('./components/ui/AutoSpotlightTour'))
+
+function PageSkeleton() {
+  return (
+    <div className="space-y-6 animate-pulse p-4 sm:p-6" aria-busy="true">
+      <div className="flex items-center justify-between">
+        <div className="h-7 bg-surface-2 rounded-md w-48 border border-hairline" />
+        <div className="h-7 bg-surface-2 rounded-md w-24 border border-hairline" />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-28 bg-surface-2 rounded-lg border border-hairline p-4 space-y-3">
+            <div className="h-3 w-20 bg-surface-3 rounded" />
+            <div className="h-6 w-16 bg-surface-3 rounded" />
+          </div>
+        ))}
+      </div>
+      <div className="h-72 bg-surface-2 rounded-lg border border-hairline" />
+    </div>
+  )
+}
 
 type Route = 'hero' | 'login' | 'dashboard' | 'review' | 'kb' | 'admin';
 
@@ -36,11 +58,6 @@ const NAV: { id: Route; label: string; icon: React.ElementType }[] = [
   { id: 'kb', label: 'Knowledge Base', icon: BookOpen },
   { id: 'admin', label: 'Users', icon: Shield },
 ]
-
-// role rank for nav gating hints (KB edit UI hides below manager)
-export const ROLE_RANK: Record<User['role'], number> = {
-  creator: 0, reviewer: 1, manager: 2, admin: 3,
-}
 
 function NavLink({ n, active, onClick }: {
   n: (typeof NAV)[number]
@@ -121,14 +138,6 @@ export default function App() {
     return () => removeEventListener('hashchange', on)
   }, [user])
 
-  // Whenever user arrives on the home page (hero), launch the tour from step 1
-  useEffect(() => {
-    if (path.route === 'hero') {
-      sessionStorage.setItem('brandguard_tour_step', '0')
-      setAutoTourActive(true)
-    }
-  }, [path.route])
-
   // Clear any legacy permanent dismissal key so it doesn't suppress the tour
   useEffect(() => {
     try {
@@ -147,11 +156,23 @@ export default function App() {
   }, [user, path.route])
 
   // Cmd/Ctrl+K opens the command palette; Esc closes overlays.
+  const openCmd = () => {
+    setQ('')
+    setCmdOpen(true)
+    requestAnimationFrame(() => searchRef.current?.focus())
+  }
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        setCmdOpen((v) => !v)
+        setCmdOpen((v) => {
+          if (!v) {
+            setQ('')
+            requestAnimationFrame(() => searchRef.current?.focus())
+          }
+          return !v
+        })
       }
       if (e.key === 'Escape') {
         setCmdOpen(false)
@@ -161,13 +182,6 @@ export default function App() {
     addEventListener('keydown', onKey)
     return () => removeEventListener('keydown', onKey)
   }, [])
-
-  useEffect(() => {
-    if (cmdOpen) {
-      setQ('')
-      requestAnimationFrame(() => searchRef.current?.focus())
-    }
-  }, [cmdOpen])
 
   const commands = useMemo(() => {
     const base = NAV.filter((n) => n.id !== 'admin' || user?.role === 'admin').map((n) => ({
@@ -241,7 +255,7 @@ export default function App() {
 
   if (path.route === 'login' || !user) {
     return (
-      <>
+      <Suspense fallback={<PageSkeleton />}>
         <Login
           onLogin={(u) => {
             setUser(u)
@@ -267,7 +281,7 @@ export default function App() {
         />
 
         <Toaster theme="dark" position="top-right" />
-      </>
+      </Suspense>
     )
   }
 
@@ -299,7 +313,7 @@ export default function App() {
 
       <div className="p-4 border-t border-hairline">
         <button
-          onClick={() => setCmdOpen(true)}
+          onClick={openCmd}
           className="mb-3 w-full flex items-center gap-2 px-3 py-2 text-xs text-muted
             bg-surface-2 border border-hairline rounded-md hover:text-ink
             hover:border-hairline-strong transition-colors cursor-pointer"
@@ -397,7 +411,7 @@ export default function App() {
               <span className="hidden sm:inline">Role Tour</span>
             </button>
             <button
-              onClick={() => setCmdOpen(true)}
+              onClick={openCmd}
               aria-label="Open command palette"
               className="p-2 min-w-10 min-h-10 grid place-items-center text-muted hover:text-ink rounded-md hover:bg-surface-2 cursor-pointer"
             >
@@ -410,10 +424,12 @@ export default function App() {
         </div>
 
         <main id="main" className="px-4 sm:px-6 py-6 sm:py-8 max-w-7xl w-full mx-auto flex-1">
-          {path.route === 'dashboard' && <Dashboard />}
-          {path.route === 'review' && <Review key={path.arg || 'list'} selected={path.arg} user={user} />}
-          {path.route === 'kb' && <KB user={user} />}
-          {path.route === 'admin' && ROLE_RANK[user.role] >= ROLE_RANK.admin && <AdminUsersPage user={user} />}
+          <Suspense fallback={<PageSkeleton />}>
+            {path.route === 'dashboard' && <Dashboard />}
+            {path.route === 'review' && <Review key={path.arg || 'list'} selected={path.arg} user={user} />}
+            {path.route === 'kb' && <KB user={user} />}
+            {path.route === 'admin' && ROLE_RANK[user.role] >= ROLE_RANK.admin && <AdminUsersPage user={user} />}
+          </Suspense>
         </main>
 
         <footer className="border-t border-hairline px-6 py-4 text-[11px] text-faint
@@ -472,24 +488,26 @@ export default function App() {
       )}
 
       {/* Role Tour Guide */}
-      <RoleTourGuide
-        currentUser={user}
-        isOpen={tourOpen}
-        onClose={() => setTourOpen(false)}
-        onSwitchRole={handleSwitchRole}
-      />
+      <Suspense fallback={null}>
+        <RoleTourGuide
+          currentUser={user}
+          isOpen={tourOpen}
+          onClose={() => setTourOpen(false)}
+          onSwitchRole={handleSwitchRole}
+        />
 
-      {/* Auto Spotlight Tour (Global Blocking Guided Walkthrough) */}
-      <AutoSpotlightTour
-        currentUser={user}
-        isActive={autoTourActive}
-        onClose={() => {
-          setAutoTourActive(false)
-          sessionStorage.removeItem('brandguard_tour_step')
-        }}
-        onSwitchRole={handleSwitchRole}
-        onSignOut={handleSignOut}
-      />
+        {/* Auto Spotlight Tour (Global Blocking Guided Walkthrough) */}
+        <AutoSpotlightTour
+          currentUser={user}
+          isActive={autoTourActive}
+          onClose={() => {
+            setAutoTourActive(false)
+            sessionStorage.removeItem('brandguard_tour_step')
+          }}
+          onSwitchRole={handleSwitchRole}
+          onSignOut={handleSignOut}
+        />
+      </Suspense>
 
       <Toaster theme="dark" position="top-right" />
     </div>

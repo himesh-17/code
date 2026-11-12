@@ -9,7 +9,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import db
 from .auth import current_user, require_role
@@ -82,22 +82,22 @@ def _rate_limit(request: Request) -> None:
 
 class PeerBody(BaseModel):
     action: str                          # approve | reject
-    note: str = ""
+    note: str = Field(default="", max_length=1000)
 
 
 class CommentBody(BaseModel):
-    body: str
+    body: str = Field(..., min_length=1, max_length=5000)
     parent_id: int | None = None
 
 
 class CommentPatch(BaseModel):
     resolved: bool
-    reply: str = ""
+    reply: str = Field(default="", max_length=5000)
 
 
 class ContentPatch(BaseModel):
-    title: str | None = None
-    text: str | None = None
+    title: str | None = Field(default=None, max_length=500)
+    text: str | None = Field(default=None, max_length=50_000)
 
 
 class RemediateBody(BaseModel):

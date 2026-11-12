@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, msg, upload, type Content, type Finding, type ReviewResult, type User, type RemediateResult, type PublishResult } from '../api'
 import { ROLE_RANK } from '../App'
 import {
-  Badge, Btn, Empty, Field, SeverityBadge, StatusChip, inputCls,
+  Badge, Btn, Empty, Field, SeverityBadge, StatusChip,
 } from '../ui'
+import { inputCls } from '../lib/styles'
 import {
   AlertCircle,
   ArrowDown,
@@ -204,9 +205,13 @@ export default function Review({ selected, user }: { selected: string; user: Use
   }, [])
 
   const loadDetail = useCallback((id: number) => {
-    if (!id) { setDetail(null); setResult(null); return }
+    if (!id) return
     api<Content>(`/content/${id}`).then((d) => {
       setDetail(d)
+      setResult(null)
+      setRemediatePreview(null)
+      setRemediateSuccessMsg('')
+      setPublishStatus('')
     }).catch((e) => setErr(msg(e)))
     api<Comment[]>(`/content/${id}/comments`).then(setComments)
       .catch(() => setComments([]))
@@ -222,22 +227,23 @@ export default function Review({ selected, user }: { selected: string; user: Use
 
   useEffect(loadList, [loadList])
   useEffect(() => {
-    setResult(null)
-    setRemediatePreview(null)
-    setRemediateSuccessMsg('')
-    setPublishStatus('')
-    loadDetail(cid)
+    if (cid) {
+      loadDetail(cid)
+    }
   }, [cid, loadDetail])
 
-  const findings: Finding[] =
-    (result?.findings ?? detail?.findings ?? [])
+  const findings: Finding[] = useMemo(() => {
+    return (result?.findings ?? detail?.findings ?? [])
       .slice()
       .sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity])
+  }, [result?.findings, detail?.findings])
 
-  const unresolvedCriticals =
-    findings.filter((f) => f.severity === 'critical' && f.accepted === 0)
+  const unresolvedCriticals = useMemo(() => {
+    return findings.filter((f) => f.severity === 'critical' && f.accepted === 0)
+  }, [findings])
 
   async function create() {
+    if (busy) return
     setBusy('create')
     setErr('')
     try {
@@ -250,6 +256,7 @@ export default function Review({ selected, user }: { selected: string; user: Use
   }
 
   async function runReview() {
+    if (busy) return
     setBusy('review'); setErr('')
     try {
       const r = await api<ReviewResult>(
@@ -261,6 +268,7 @@ export default function Review({ selected, user }: { selected: string; user: Use
   }
 
   async function uploadImage(file: File) {
+    if (busy) return
     if (!file.type.startsWith('image/')) { setErr('File must be an image'); return }
     if (file.size > 5 * 1024 * 1024) { setErr('Image exceeds 5MB limit'); return }
     setBusy('upload'); setErr('')
@@ -272,12 +280,20 @@ export default function Review({ selected, user }: { selected: string; user: Use
   }
 
   async function setFinding(f: Finding, accepted: 0 | 1 | 2) {
-    const updated = await api<Finding>(`/findings/${f.id}`, {
-      method: 'PATCH', body: { accepted } })
-    const base = result?.findings ?? detail?.findings ?? []
-    const next = base.map((x) => (x.id === updated.id ? updated : x))
-    if (result) setResult({ ...result, findings: next })
-    else setDetail(detail ? { ...detail, findings: next } : detail)
+    if (busy) return
+    setBusy(`finding-${f.id}`)
+    try {
+      const updated = await api<Finding>(`/findings/${f.id}`, {
+        method: 'PATCH', body: { accepted } })
+      const base = result?.findings ?? detail?.findings ?? []
+      const next = base.map((x) => (x.id === updated.id ? updated : x))
+      if (result) setResult({ ...result, findings: next })
+      else setDetail(detail ? { ...detail, findings: next } : detail)
+    } catch (e) {
+      setErr(msg(e))
+    } finally {
+      setBusy('')
+    }
   }
 
   const applicableAccepted = findings.filter(
@@ -286,7 +302,7 @@ export default function Review({ selected, user }: { selected: string; user: Use
   const applicableAcceptedCount = applicableAccepted.length
 
   async function handlePreviewRemediate() {
-    if (!cid) return
+    if (!cid || busy) return
     setBusy('remediate')
     setErr('')
     try {
@@ -303,7 +319,7 @@ export default function Review({ selected, user }: { selected: string; user: Use
   }
 
   async function handleApplyRemediate() {
-    if (!cid) return
+    if (!cid || busy) return
     const prevCount = findings.length
     setBusy('remediate')
     setErr('')
@@ -325,7 +341,7 @@ export default function Review({ selected, user }: { selected: string; user: Use
   }
 
   async function publish() {
-    if (!cid) return
+    if (!cid || busy) return
     setBusy('publish')
     setErr('')
     try {
@@ -346,6 +362,7 @@ export default function Review({ selected, user }: { selected: string; user: Use
   }
 
   async function approve() {
+    if (busy) return
     setBusy('approve'); setErr('')
     try {
       await api(`/content/${cid}/approve`, { method: 'POST' })
@@ -354,6 +371,7 @@ export default function Review({ selected, user }: { selected: string; user: Use
   }
 
   async function requestChanges() {
+    if (busy) return
     setBusy('rc'); setErr('')
     try {
       await api(`/content/${cid}/request-changes`, { method: 'POST' })
@@ -362,7 +380,7 @@ export default function Review({ selected, user }: { selected: string; user: Use
   }
 
   async function postComment() {
-    if (!comment.trim()) return
+    if (busy || !comment.trim()) return
     setBusy('c')
     try {
       await api(`/content/${cid}/comments`, {
@@ -372,8 +390,9 @@ export default function Review({ selected, user }: { selected: string; user: Use
     } catch (e) { setErr(msg(e)) } finally { setBusy('') }
   }
 
-  const visible = filter
-    ? list.filter((c) => c.status === filter) : list
+  const visible = useMemo(() => {
+    return filter ? list.filter((c) => c.status === filter) : list
+  }, [list, filter])
 
   return (
     <div className="space-y-8 w-full">

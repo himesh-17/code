@@ -23,10 +23,10 @@ class Finding(BaseModel):
 
 class ContentCreate(BaseModel):
     type: Literal["text", "image", "email", "social"] = "text"
-    title: str = ""
-    text: str = ""
-    channel: str = "web"
-    created_by: str = "creator"
+    title: str = Field(default="", max_length=500)
+    text: str = Field(default="", max_length=50_000)
+    channel: str = Field(default="web", max_length=100)
+    created_by: str = Field(default="creator", max_length=200)
 
 
 class ContentOut(BaseModel):

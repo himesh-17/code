@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, msg, type User } from '../api'
-import { Badge, Btn, Empty, inputCls } from '../ui'
+import { Badge, Btn, Empty } from '../ui'
+import { inputCls } from '../lib/styles'
 import { Trash2 } from 'lucide-react'
 
 const ROLES: User['role'][] = ['creator', 'reviewer', 'manager', 'admin']
@@ -21,6 +22,7 @@ export default function AdminUsersPage({ user }: { user: User }) {
   useEffect(load, [load])
 
   async function create() {
+    if (busy) return
     if (!email.trim() || password.length < 8) {
       setErr('Email and password (min 8 chars) required')
       return

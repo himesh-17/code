@@ -110,12 +110,21 @@ def require_role(minimum: str):
 
 def decode_refresh(token: str) -> dict:
     claims = _decode(token, "refresh")
+    jti = claims.get("jti", "")
     with db.get() as conn:
-        row = db.one(conn, "SELECT revoked, expires_at FROM refresh_token "
-                           "WHERE jti=?", (claims.get("jti", ""),))
-    if not row or row["revoked"]:
-        raise HTTPException(401, "Refresh token revoked or unknown")
-    if datetime.fromisoformat(row["expires_at"]).replace(
-            tzinfo=timezone.utc) < _now():
-        raise HTTPException(401, "Refresh token expired")
+        row = db.one(conn, "SELECT user_id, revoked, expires_at FROM refresh_token "
+                           "WHERE jti=?", (jti,))
+        if not row:
+            raise HTTPException(401, "Refresh token revoked or unknown")
+        if row["revoked"]:
+            # Token reuse detection: revoked token presented -> revoke all tokens for this user
+            conn.execute("UPDATE refresh_token SET revoked=1 WHERE user_id=?",
+                         (row["user_id"],))
+            db.log_audit(conn, None, f"user:{row['user_id']}", "token_reuse_detected",
+                         f"revoked token {jti[:8]} reused — invalidating all sessions")
+            conn.commit()
+            raise HTTPException(401, "Refresh token revoked or unknown")
+        if datetime.fromisoformat(row["expires_at"]).replace(
+                tzinfo=timezone.utc) < _now():
+            raise HTTPException(401, "Refresh token expired")
     return claims

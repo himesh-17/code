@@ -1,21 +1,46 @@
+# Environment & Secrets
 .env
-.venv/
-__pycache__/
-*.pyc
-*.db
-.pytest_cache/
-node_modules/
-frontend/dist/
-frontend/*.png
-uv.lock
+.env.*
+!.env.example
 
-# Generated handoff documentation, PDF, and screenshot assets
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.db
+*.sqlite3
+
+# Node.js
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/dist/
+frontend/build/
+
+# Build & Cache
+dist/
+build/
+.next/
+.cache/
+*.log
+
+# Generated files
 BrandGuard_AI_Round3_Handoff.pdf
 *.pdf
 handoff.html
 screenshots/
 scratch/
 
-# Lockfile churn
-package-lock.json
-frontend/package-lock.json
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.bak
