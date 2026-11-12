@@ -4,6 +4,7 @@ Re-runnable: clears and reloads brand tables; keeps user content untouched
 unless reset=True (tests / fresh demo).
 """
 from . import db
+from .settings import settings
 
 GUIDELINES = [
     ("Tone of Voice",
@@ -214,7 +215,10 @@ def seed(reset: bool = False) -> dict:
         skipped = bool(conn.execute(
             "SELECT COUNT(*) c FROM guideline").fetchone()["c"])
         if skipped:
-            _backfill(conn)
+            # Legacy demo DBs only: never fabricate verification dates for a
+            # real deployment (SEED_DEMO=0).
+            if settings.seed_demo:
+                _backfill(conn)
         else:
             conn.executemany("INSERT INTO guideline (title, body) VALUES (?, ?)",
                              GUIDELINES)

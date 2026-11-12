@@ -163,3 +163,18 @@ def test_resolve_image_paths(tmp_path, monkeypatch):
     assert resolve_image(str(tmp_path / "a.png")) == tmp_path / "a.png"
     assert resolve_image("/uploads/missing.png") is None
     assert resolve_image("") is None
+
+
+def test_encode_image_downscales_before_upload(tmp_path):
+    """Vision payloads are resized/JPEG-encoded, not sent at full resolution."""
+    import base64
+    import io
+    from PIL import Image
+    from app.engine.vision import _encode_image
+
+    p = tmp_path / "big.png"
+    Image.new("RGB", (3000, 2000), "red").save(p)
+    mime, b64 = _encode_image(p)
+    assert mime == "image/jpeg"
+    with Image.open(io.BytesIO(base64.b64decode(b64))) as im:
+        assert max(im.size) <= 1280

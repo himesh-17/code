@@ -208,6 +208,7 @@ def test_embed_gemini_path_and_fallback(monkeypatch):
             raise RuntimeError("gemini down")
 
     fake.OpenAI = _Boom                          # API failure → local fallback
+    embed_mod.reset_client()
     out = embed_mod.embed_texts(["hello"])
     assert out == [embed_mod._local("hello")]
 

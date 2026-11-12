@@ -1,6 +1,7 @@
 """BrandGuard AI — FastAPI app. One file, auto /docs for the frontend."""
 import contextvars
 import io
+import logging
 import re
 import time
 import uuid
@@ -11,7 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import (FastAPI, HTTPException, UploadFile, File, Form, Request,
-                     Body, Depends)
+                     Body, Depends, Query)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
@@ -30,14 +31,21 @@ from .state import LOCKED, require_transition
 from .kb import router as kb_router
 from .workflow import router as workflow_router
 
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(name)s %(message)s")
+for _noisy in ("httpx", "httpcore", "openai", "urllib3"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
 request_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="")
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    settings.validate()
     db.init()
     seed.seed()
-    seed.ensure_users()
+    if settings.seed_demo:
+        seed.ensure_users()
     Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
     yield
 
@@ -126,14 +134,24 @@ def _check_rate_limit(key: str, limit: int, window_sec: int = 60, scope: str = "
     q.append(now)
 
 
+def _client_ip(request: Request) -> str:
+    # Behind Render's proxy request.client is the proxy; the platform sets
+    # X-Forwarded-For to the real client. ponytail: trusts the platform to
+    # overwrite XFF — revisit if we ever sit behind a proxy that appends.
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 def rate_limit(request: Request) -> None:
-    ip = request.client.host if request.client else "unknown"
-    _check_rate_limit(f"review:{ip}", settings.review_rate_per_min, 60, "Review")
+    _check_rate_limit(f"review:{_client_ip(request)}",
+                      settings.review_rate_per_min, 60, "Review")
 
 
 def auth_rate_limit(request: Request) -> None:
-    ip = request.client.host if request.client else "unknown"
-    _check_rate_limit(f"auth:{ip}", settings.auth_rate_per_min, 60, "Authentication")
+    _check_rate_limit(f"auth:{_client_ip(request)}",
+                      settings.auth_rate_per_min, 60, "Authentication")
 
 
 @app.get("/health")
@@ -146,7 +164,10 @@ def health() -> dict:
                              "final approval is always human.",
             "provider": llm.active_name(),
             "model": llm.active_model(),
-            "llm_available": llm.available()}
+            "llm_available": llm.available(),
+            # config visibility: both must be healthy in production
+            "database": "postgres" if settings.database_url else "sqlite",
+            "jwt_secret_set": bool(settings.jwt_secret)}
 
 
 # ---------- auth (full JWT) ----------
@@ -173,6 +194,9 @@ def login(body: LoginBody, request: Request):
         raise HTTPException(401, "Invalid credentials")  # same msg both cases
     access = auth.create_access(user)
     refresh, _ = auth.create_refresh(user)
+    with db.get() as conn:
+        db.log_audit(conn, None, user["email"], "login", "password")
+        conn.commit()
     return {"access_token": access, "refresh_token": refresh,
             "token_type": "bearer",
             "user": {"id": user["id"], "email": user["email"],
@@ -205,6 +229,12 @@ def logout(request: Request):
         try:
             claims = auth._decode(header[7:].strip(), "refresh")
             auth.revoke(claims["jti"])
+            with db.get() as conn:
+                row = db.one(conn, "SELECT email FROM users WHERE id=?",
+                             (claims.get("sub"),))
+                db.log_audit(conn, None, row["email"] if row else "unknown",
+                             "logout", "")
+                conn.commit()
         except HTTPException:
             pass                                   # access token: client drops it
     return {"logged_out": True}
@@ -216,7 +246,7 @@ def me(user: dict = Depends(current_user)):
 
 
 @app.post("/auth/users", status_code=201)
-def create_user(body: UserCreate, _: dict = Depends(
+def create_user(body: UserCreate, admin: dict = Depends(
         require_role("admin"))):
     with db.get() as conn:
         if db.one(conn, "SELECT id FROM users WHERE email=?",
@@ -228,6 +258,8 @@ def create_user(body: UserCreate, _: dict = Depends(
             (body.email.lower().strip(), auth.hash_password(body.password),
              body.role, body.team))
         new_id = cur.fetchone()["id"]
+        db.log_audit(conn, None, admin["email"], "user_create",
+                     f"{body.email.lower().strip()} role={body.role}")
         conn.commit()
         row = db.one(conn, "SELECT id, email, role, team FROM users "
                            "WHERE id=?", (new_id,))
@@ -254,6 +286,8 @@ def update_user(uid: int, body: UserPatch, admin: dict = Depends(
         if uid == admin["id"] and body.role != "admin":
             raise HTTPException(409, "cannot change your own admin role")
         conn.execute("UPDATE users SET role=? WHERE id=?", (body.role, uid))
+        db.log_audit(conn, None, admin["email"], "user_role_change",
+                     f"{row['email']}: {row['role']} -> {body.role}")
         conn.commit()
         return db.one(conn, "SELECT id, email, role, team FROM users WHERE id=?",
                       (uid,))
@@ -264,10 +298,13 @@ def delete_user(uid: int, admin: dict = Depends(require_role("admin"))):
     if uid == admin["id"]:
         raise HTTPException(409, "cannot delete your own account")
     with db.get() as conn:
-        row = db.one(conn, "SELECT id FROM users WHERE id=?", (uid,))
+        row = db.one(conn, "SELECT id, email FROM users WHERE id=?", (uid,))
         if not row:
             raise HTTPException(404, "user not found")
+        # refresh_token has an FK to users — clear sessions before deleting.
+        conn.execute("DELETE FROM refresh_token WHERE user_id=?", (uid,))
         conn.execute("DELETE FROM users WHERE id=?", (uid,))
+        db.log_audit(conn, None, admin["email"], "user_delete", row["email"])
         conn.commit()
 
 
@@ -275,6 +312,9 @@ def delete_user(uid: int, admin: dict = Depends(require_role("admin"))):
 @app.post("/content", response_model=ContentOut, status_code=201)
 def create_content(body: ContentCreate,
                    user: dict = Depends(current_user)):
+    if len(body.text) > settings.max_content_chars:
+        raise HTTPException(
+            422, f"text exceeds {settings.max_content_chars} characters")
     with db.get() as conn:
         cur = conn.execute(
             "INSERT INTO content (type, title, text, channel, created_by,"
@@ -290,12 +330,25 @@ def create_content(body: ContentCreate,
 
 @app.get("/content", response_model=list[ContentOut])
 def list_content(status: str | None = None,
+                 limit: int = Query(200, ge=1, le=500),
                  user: dict = Depends(current_user)):
     with db.get() as conn:
+        # Creators only see their own or their team's work; the review chain
+        # (reviewer/manager/admin) sees everything.
+        if user.get("role") == "creator":
+            sql = "SELECT * FROM content WHERE (created_by=? OR team=?)"
+            params: list = [user["email"], user.get("team") or ""]
+            if status:
+                sql += " AND status=?"
+                params.append(status)
+            sql += " ORDER BY id DESC LIMIT ?"
+            params.append(limit)
+            return db.rows(conn, sql, tuple(params))
         if status:
             return db.rows(conn, "SELECT * FROM content WHERE status=? "
-                           "ORDER BY id DESC", (status,))
-        return db.rows(conn, "SELECT * FROM content ORDER BY id DESC")
+                           "ORDER BY id DESC LIMIT ?", (status, limit))
+        return db.rows(conn, "SELECT * FROM content ORDER BY id DESC LIMIT ?",
+                       (limit,))
 
 
 @app.get("/content/{cid}", response_model=ContentWithFindings)
@@ -304,6 +357,8 @@ def get_content(cid: int, user: dict = Depends(current_user)):
         row = db.one(conn, "SELECT * FROM content WHERE id=?", (cid,))
         if not row:
             raise HTTPException(404, "content not found")
+        if not auth.can_view_content(user, row):
+            raise HTTPException(403, "not allowed to view this content")
         row["findings"] = db.rows(
             conn, "SELECT * FROM finding WHERE content_id=? AND superseded=0"
                   " ORDER BY id", (cid,))
@@ -322,7 +377,9 @@ def run_review(cid: int, request: Request, force_mock: bool = False,
         if row["status"] in LOCKED:
             raise HTTPException(
                 409, f"cannot review locked content (status '{row['status']}')")
-        return review_service.run_review_on(conn, row, user, force_mock)
+    # Run the LLM chain outside the pooled connection so a slow provider
+    # can't exhaust the pool for every other request.
+    return review_service.run_review_on(row, user, force_mock)
 
 
 @app.patch("/findings/{fid}", response_model=Finding)
@@ -385,7 +442,7 @@ def request_changes(cid: int,
 
 
 @app.get("/audit")
-def audit_log(limit: int = 100,
+def audit_log(limit: int = Query(100, ge=1, le=1000),
               user: dict = Depends(require_role("manager"))):
     with db.get() as conn:
         return db.rows(conn, "SELECT * FROM audit ORDER BY id DESC LIMIT ?",
@@ -587,8 +644,14 @@ def upload_image(cid: int, file: UploadFile = File(...),
             raise HTTPException(400, "SVG contains disallowed active scripts")
 
     with db.get() as conn:
-        if not db.one(conn, "SELECT id FROM content WHERE id=?", (cid,)):
+        row = db.one(conn, "SELECT id, status FROM content WHERE id=?", (cid,))
+        if not row:
             raise HTTPException(404, "content not found")
+        # Approved/published copy is immutable: no swapping the image behind
+        # an already-signed-off asset.
+        if row["status"] in LOCKED:
+            raise HTTPException(
+                409, f"cannot modify locked content (status '{row['status']}')")
 
     # safe filename: uuid + basename only (no path traversal)
     safe = f"{cid}_{uuid.uuid4().hex[:8]}.png" if not re.fullmatch(
@@ -604,6 +667,8 @@ def upload_image(cid: int, file: UploadFile = File(...),
             "UPDATE content SET image_path=?, text=CASE WHEN text='' "
             "THEN ? ELSE text END, type='image' WHERE id=?",
             (f"/uploads/{safe}", text, cid))   # URL, not filesystem path
+        db.log_audit(conn, cid, user["email"], "upload",
+                     f"{safe} ({len(data)} bytes)")
         conn.commit()
         return db.one(conn, "SELECT * FROM content WHERE id=?", (cid,))
 

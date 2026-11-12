@@ -219,6 +219,7 @@ CREATE TABLE IF NOT EXISTS kb_chunk (
 
 CREATE INDEX IF NOT EXISTS idx_finding_content ON finding(content_id);
 CREATE INDEX IF NOT EXISTS idx_finding_content_sup ON finding(content_id, superseded);
+CREATE INDEX IF NOT EXISTS idx_finding_gate ON finding(content_id, superseded, severity, accepted);
 CREATE INDEX IF NOT EXISTS idx_content_status  ON content(status);
 CREATE INDEX IF NOT EXISTS idx_content_created ON content(created_at);
 CREATE INDEX IF NOT EXISTS idx_finding_created ON finding(created_at, superseded);
@@ -309,12 +310,32 @@ def init() -> None:
         try:
             with get() as conn:
                 conn.executescript(pg_schema())
-                try:
-                    conn.execute(
-                        "ALTER TABLE finding ADD COLUMN IF NOT EXISTS "
-                        "superseded INTEGER NOT NULL DEFAULT 0")
-                except Exception as e:
-                    log.warning("finding.superseded migration skipped: %s", e)
+                # Idempotent column migrations for Postgres DBs created
+                # before a column existed (SQLite has its own _migrate()).
+                for ddl in (
+                    "ALTER TABLE finding ADD COLUMN IF NOT EXISTS "
+                    "superseded INTEGER NOT NULL DEFAULT 0",
+                    "ALTER TABLE finding ADD COLUMN IF NOT EXISTS "
+                    "evidence TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE audit ADD COLUMN IF NOT EXISTS "
+                    "tokens INTEGER NOT NULL DEFAULT 0",
+                    "ALTER TABLE audit ADD COLUMN IF NOT EXISTS "
+                    "prev_hash TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE audit ADD COLUMN IF NOT EXISTS "
+                    "hash TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE content ADD COLUMN IF NOT EXISTS "
+                    "team TEXT NOT NULL DEFAULT 'marketing'",
+                    "ALTER TABLE content ADD COLUMN IF NOT EXISTS "
+                    "sla_due_at TEXT",
+                    "ALTER TABLE content ADD COLUMN IF NOT EXISTS "
+                    "published_at TEXT",
+                    "ALTER TABLE fact ADD COLUMN IF NOT EXISTS "
+                    "verified_at TEXT",
+                ):
+                    try:
+                        conn.execute(ddl)
+                    except Exception as e:
+                        log.warning("pg migration skipped (%s): %s", ddl[:60], e)
                 conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
                 conn.execute(
                     "ALTER TABLE kb_chunk ADD COLUMN IF NOT EXISTS "

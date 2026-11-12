@@ -11,6 +11,7 @@ Any failure degrades to [] — the palette check in visual.check still
 runs, so review never breaks for want of a vision model.
 """
 import base64
+import io
 import json
 import logging
 import re
@@ -120,6 +121,21 @@ def _contrast_findings(path: Path) -> list[dict]:
     return out
 
 
+def _encode_image(p: Path) -> tuple[str, str]:
+    """Downscale to <=1280px and JPEG-encode before upload.
+
+    Vision quality is unchanged at this size but the base64 payload drops
+    from several MB to a few hundred KB — less bandwidth, fewer timeouts.
+    """
+    from PIL import Image
+    with Image.open(p) as im:
+        im = im.convert("RGB")
+        im.thumbnail((1280, 1280))
+        buf = io.BytesIO()
+        im.save(buf, format="JPEG", quality=85)
+    return "image/jpeg", base64.b64encode(buf.getvalue()).decode()
+
+
 def check(path: str) -> tuple[list[dict], int]:
     """Vision findings + pixel contrast. Returns (findings, tokens).
 
@@ -130,7 +146,7 @@ def check(path: str) -> tuple[list[dict], int]:
         return [], 0
 
     try:
-        b64 = base64.b64encode(p.read_bytes()).decode()
+        mime, b64 = _encode_image(p)
     except Exception:
         return [], 0
 
@@ -142,7 +158,7 @@ def check(path: str) -> tuple[list[dict], int]:
     payload = {
         "contents": [{"parts": [
             {"text": f"{SYSTEM}\nBrand palette:\n{palette}"},
-            {"inline_data": {"mime_type": "image/png", "data": b64}},
+            {"inline_data": {"mime_type": mime, "data": b64}},
         ]}],
         "generationConfig": {"responseMimeType": "application/json",
                              "temperature": 0},

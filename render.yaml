@@ -1,0 +1,43 @@
+# Render blueprint for the BrandGuard AI backend.
+#
+# NOTE: free instances cannot attach persistent disks. Uploaded creatives live
+# on the ephemeral filesystem and disappear on redeploy — acceptable for the
+# hackathon demo (re-upload), or upgrade to a paid instance and uncomment the
+# disk block below. Postgres (Supabase) holds all durable data.
+services:
+  - type: web
+    name: branguard-ai
+    runtime: python
+    plan: free
+    # Closest free region to India; change to "singapore" only if the
+    # existing service already lives there (region cannot be changed in place).
+    region: singapore
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: JWT_SECRET
+        generateValue: true          # never boot with the dev fallback
+      - key: DATABASE_URL
+        sync: false                  # Supabase pooler URL (secret)
+      - key: CORS_ORIGINS
+        value: https://ai-brandguard.vercel.app
+      - key: SEED_DEMO
+        value: "1"                   # demo accounts for judges; "0" for clean prod
+      - key: LLM_PROVIDER
+        value: groq                  # groq | openai | mock
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: WEBHOOK_SECRET
+        generateValue: true
+      - key: INBOUND_ALLOW_AUTOPUBLISH
+        value: "0"                   # human approval only in prod
+    # disk:
+    #   name: uploads
+    #   mountPath: /opt/render/project/src/backend/data/uploads
+    #   sizeGB: 1

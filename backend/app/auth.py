@@ -128,3 +128,14 @@ def decode_refresh(token: str) -> dict:
                 tzinfo=timezone.utc) < _now():
             raise HTTPException(401, "Refresh token expired")
     return claims
+
+
+def can_view_content(user: dict, row: dict) -> bool:
+    """Creators may only read their own or their team's content.
+
+    Reviewer/manager/admin keep full visibility (they are the review chain).
+    """
+    if user.get("role") != "creator":
+        return True
+    return (row.get("created_by") == user.get("email")
+            or (row.get("team") or "") == (user.get("team") or ""))

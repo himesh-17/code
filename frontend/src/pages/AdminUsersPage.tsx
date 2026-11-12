@@ -98,7 +98,7 @@ export default function AdminUsersPage({ user }: { user: User }) {
       </section>
 
       {/* Users list */}
-      <section className="bg-surface border border-hairline rounded-lg overflow-hidden">
+      <section className="bg-surface border border-hairline rounded-lg overflow-x-auto">
         {users.length === 0 && (
           <div className="p-8"><Empty>No users found.</Empty></div>
         )}

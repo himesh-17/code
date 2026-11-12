@@ -21,6 +21,28 @@ def tokenize(text: str) -> list[str]:
     return _TOKEN.findall(text.lower())
 
 
+_client_cache = None
+
+
+def _client():
+    """One shared Gemini OpenAI-compatible client (avoid a new TLS pool per call)."""
+    global _client_cache
+    if _client_cache is None:
+        from openai import OpenAI
+        _client_cache = OpenAI(
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            api_key=settings.gemini_api_key,
+            timeout=30,
+        )
+    return _client_cache
+
+
+def reset_client() -> None:
+    """Drop the cached client (tests / key rotation)."""
+    global _client_cache
+    _client_cache = None
+
+
 def embed_texts(texts: list[str]) -> list[list[float]]:
     """Embed a list of texts.
 
@@ -31,13 +53,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
         return [_local(t) for t in texts]
 
     try:
-        from openai import OpenAI  # Gemini's OpenAI‑compatible endpoint
-        c = OpenAI(
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            api_key=settings.gemini_api_key,
-            timeout=30,
-        )
-        r = c.embeddings.create(
+        r = _client().embeddings.create(
             model=settings.embed_model, input=texts, dimensions=settings.embed_dim,
         )
         return [d.embedding for d in r.data]

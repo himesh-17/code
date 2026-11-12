@@ -114,6 +114,14 @@ finding and approves → team-level compliance analytics.
   overdue list, stale facts, LLM token spend.
 - **Tamper-evident audit log**: every action appends a
   `prev_hash → sha256` chain; `/audit/verify` walks it and reports breaks.
+- **Config visibility**: missing `DATABASE_URL`/`JWT_SECRET` in production is
+  logged at CRITICAL and reported by `/health` (`database`, `jwt_secret_set`);
+  `STRICT_CONFIG=1` turns it into a hard startup failure.
+- **Resource scoping**: creators can only read their own or their team's
+  content; the review chain keeps full visibility.
+- **Immutable approvals**: approved/published copy rejects image replacement.
+- **Audit coverage**: login, logout, user create/role-change/delete and
+  uploads all append to the hash-chained audit log.
 - **Rate limiting**: 10 reviews/min/IP and sliding-window protection on auth endpoints.
 - **Hardened headers & tracing**: HSTS, `Permissions-Policy`, `X-Request-ID` correlation
   tracing, sanitized 500s with correlation IDs, `Cache-Control: no-store`.
@@ -512,7 +520,7 @@ Network calls also benefit from **in-flight GET request deduplication** (`fronte
 cd backend
 
 # unit + API + workflow tests (mock provider — no API spend, no vision spend)
-../.venv/bin/python -m pytest -q                    # 110 tests (100% passing)
+../.venv/bin/python -m pytest -q                    # 120 tests (100% passing)
 
 # accuracy benchmark against a 12-sample golden set
 ../.venv/bin/python -m bench.evaluate --mock        # offline gate (CI)
@@ -616,6 +624,10 @@ CI (`.github/workflows/ci.yml`) runs on every push/PR: install → pip-audit
 ---
 
 ## Deploy
+
+`render.yaml` at the repo root is a ready blueprint (health check, env vars,
+`SEED_DEMO`, `INBOUND_ALLOW_AUTOPUBLISH=0`). Free instances have no persistent
+disk, so uploaded creatives are ephemeral — Postgres holds all durable data.
 
 Works on any PaaS that runs a Python HTTP process (Render, Railway, Fly,
 Railway, Kubernetes, a plain VM).
@@ -746,4 +758,4 @@ routing policies, SSO, fine-tuned classifier on reviewed history.
 
 ---
 
-**Production-hardened enterprise release — backend complete (110 tests, live accuracy P=0.83 / R=1.00, mock P=1.00 / R=1.00, 50-concurrency load PASS), frontend optimized (53.8 KB main bundle, 0 Oxlint warnings, 100% strict TypeScript).**
+**Production-hardened enterprise release — backend complete (120 tests, live accuracy P=0.83 / R=1.00, mock P=1.00 / R=1.00, 50-concurrency load PASS), frontend optimized (53.8 KB main bundle, 0 Oxlint warnings, 100% strict TypeScript).**

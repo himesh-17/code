@@ -3,6 +3,8 @@
 Root .env is loaded explicitly so the app works whether it is started from
 the repo root or from backend/ (uvicorn app.main:app). Real env vars set by
 the host always win (override=False)."""
+import logging
+import os
 from pathlib import Path
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -11,6 +13,8 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 
 load_dotenv(BASE_DIR / ".env", override=False)
 load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
+
+log = logging.getLogger("brandguard.config")
 
 
 class Settings(BaseSettings):
@@ -24,9 +28,13 @@ class Settings(BaseSettings):
     upload_dir: str = str(BASE_DIR / "data" / "uploads")
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
     review_rate_per_min: int = 10
-    auth_rate_per_min: int = 600
+    auth_rate_per_min: int = 60
     max_upload_bytes: int = 5 * 1024 * 1024
     max_content_chars: int = 20_000
+    # demo accounts/guidelines on boot — set SEED_DEMO=0 for a clean prod DB
+    seed_demo: bool = True
+    # total wall-clock budget for one review (LLM + vision + citations)
+    review_budget_sec: float = 60.0
 
     # llm
     llm_provider: str = "mock"          # groq | openai | mock
@@ -72,6 +80,25 @@ class Settings(BaseSettings):
     def secret(self) -> str:
         # dev-only fallback; prod must set JWT_SECRET
         return self.jwt_secret or "brandguard-dev-secret-do-not-use-in-prod"
+
+    def validate(self) -> None:
+        """Surface prod misconfiguration loudly (logs + /health).
+
+        STRICT_CONFIG=1 turns these into a hard startup failure once the
+        deploy environment is confirmed correct — a self-inflicted outage is
+        worse than a loud warning right before a demo.
+        """
+        problems = []
+        if not self.database_url and os.getenv("RENDER"):
+            problems.append("DATABASE_URL is not set — ephemeral SQLite; "
+                            "data resets on every deploy")
+        if not self.jwt_secret and (self.database_url or os.getenv("RENDER")):
+            problems.append("JWT_SECRET is not set — the public dev fallback "
+                            "key is signing tokens")
+        for p in problems:
+            log.critical("CONFIG: %s", p)
+        if problems and os.getenv("STRICT_CONFIG") == "1":
+            raise RuntimeError("; ".join(problems))
 
 
 settings = Settings()

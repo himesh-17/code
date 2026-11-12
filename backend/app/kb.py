@@ -107,17 +107,15 @@ def _extract_text(data: bytes, name: str) -> str:
     return data.decode("utf-8", errors="ignore")
 
 
-async def _read_file_text(upload: UploadFile) -> str:
+def _read_file_text(upload: UploadFile) -> str:
     """Extract text from an uploaded guideline document.
 
     Extension-dispatched: a corrupt PDF/DOCX returns "" (honest
     'no text found') instead of decoding binary garbage into chunks."""
-    data = await upload.read()
+    data = upload.file.read()
     if not data:
         return ""
-    from starlette.concurrency import run_in_threadpool
-    return await run_in_threadpool(
-        _extract_text, data, (upload.filename or "").lower())
+    return _extract_text(data, (upload.filename or "").lower())
 
 
 CHUNK_SIZE = 1000
@@ -147,7 +145,7 @@ def chunk_text(text: str, size: int = CHUNK_SIZE,
 
 
 @router.post("/ingest", name="kb_ingest")
-async def kb_ingest(
+def kb_ingest(
     file: UploadFile = File(...),
     user: dict = Depends(require_role("manager")),
 ):
@@ -157,9 +155,12 @@ async def kb_ingest(
     256-d fallback) → store. The JSON embedding is the portable truth;
     the derived pgvector column is synced when available. Re-ingesting a
     file replaces its previous chunks. Returns {"chunks", "status", "source"}.
+
+    Sync def on purpose: PDF/DOCX parsing and embedding are blocking, so
+    FastAPI runs this in the threadpool instead of stalling the event loop.
     """
     source = Path(file.filename or "document").name
-    text = await _read_file_text(file)
+    text = _read_file_text(file)
     if not text.strip():
         return {"chunks": 0, "status": "no text found", "source": source}
     chunks = chunk_text(text)

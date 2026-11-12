@@ -541,7 +541,7 @@ export default function Review({ selected, user }: { selected: string; user: Use
                     key={c.id}
                     data-tour={idx === 0 ? 'review-queue-row' : undefined}
                     onClick={() => { location.hash = `#/review/${c.id}` }}
-                    className={`transition-all duration-200 cursor-pointer ${
+                    className={`group transition-all duration-200 cursor-pointer ${
                       isSelected
                         ? 'bg-accent/[0.08] shadow-[inset_0_0_0_1px_rgba(249,115,22,0.35)]'
                         : 'hover:bg-surface-2'
@@ -587,10 +587,14 @@ export default function Review({ selected, user }: { selected: string; user: Use
                       <StatusChip status={c.status} />
                     </td>
                     <td className="py-4 px-6 text-right whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1 text-xs text-accent group-hover:text-accent font-medium">
+                      <a
+                        href={`#/review/${c.id}`}
+                        className="inline-flex items-center gap-1 text-xs text-accent font-medium min-h-10 px-2 rounded-md hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                        aria-label={`Open draft: ${c.title}`}
+                      >
                         <span>{isSelected ? 'Viewing' : 'Inspect'}</span>
                         <ArrowDown className="w-3.5 h-3.5" />
-                      </span>
+                      </a>
                     </td>
                   </tr>
                 )
@@ -1147,7 +1151,31 @@ export default function Review({ selected, user }: { selected: string; user: Use
               </div>
             </div>
           </div>
-        ) : null}
+        ) : (
+          <div className="bg-surface border border-hairline rounded-lg p-10 text-center">
+            {err ? (
+              <>
+                <AlertCircle className="w-6 h-6 text-danger mx-auto mb-3" />
+                <p className="text-sm text-ink font-medium">
+                  Couldn&apos;t load this draft
+                </p>
+                <p className="text-xs text-muted mt-1">{err}</p>
+                <Btn
+                  className="mt-4"
+                  onClick={() => { setErr(''); loadDetail(cid) }}
+                >
+                  Retry
+                </Btn>
+              </>
+            ) : (
+              <div className="space-y-3 animate-pulse" aria-busy="true">
+                <div className="h-6 w-48 bg-surface-2 rounded mx-auto" />
+                <div className="h-3 w-64 bg-surface-2 rounded mx-auto" />
+                <div className="h-40 bg-surface-2 rounded" />
+              </div>
+            )}
+          </div>
+        )}
       </div>
       )}
       {/* Remediation Diff Modal */}

@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from . import db
-from .auth import current_user, require_role
+from .auth import current_user, require_role, can_view_content
 from .settings import settings
 from .state import LOCKED, require_transition
 
@@ -137,7 +137,9 @@ def peer_review(cid: int, body: PeerBody,
 @router.get("/content/{cid}/comments")
 def list_comments(cid: int, user: dict = Depends(current_user)):
     with db.get() as conn:
-        _content(conn, cid)
+        row = _content(conn, cid)
+        if not can_view_content(user, row):
+            raise HTTPException(403, "not allowed to view this content")
         return db.rows(conn, "SELECT * FROM comment WHERE content_id=? "
                              "ORDER BY id", (cid,))
 
@@ -199,6 +201,9 @@ def edit_content(cid: int, body: ContentPatch,
             raise HTTPException(403, "approved/published content is locked")
         if body.text is None and body.title is None:
             raise HTTPException(422, "nothing to change")
+        if body.text is not None and len(body.text) > settings.max_content_chars:
+            raise HTTPException(
+                422, f"text exceeds {settings.max_content_chars} characters")
         text_changed = body.text is not None and body.text != row["text"]
         sets, args = [], []
         if body.title is not None:
@@ -223,7 +228,9 @@ def edit_content(cid: int, body: ContentPatch,
 @router.get("/content/{cid}/versions")
 def list_versions(cid: int, user: dict = Depends(current_user)):
     with db.get() as conn:
-        _content(conn, cid)
+        row = _content(conn, cid)
+        if not can_view_content(user, row):
+            raise HTTPException(403, "not allowed to view this content")
         return db.rows(conn, "SELECT id, content_id, version, status,"
                              " author, created_at, length(text) AS chars"
                              " FROM content_version WHERE content_id=? "
@@ -290,7 +297,7 @@ def remediate(cid: int, body: RemediateBody,
     from .review_service import run_review_on       # auto re-review
     with db.get() as conn:
         row = db.one(conn, "SELECT * FROM content WHERE id=?", (cid,))
-        result = run_review_on(conn, row, user)
+    result = run_review_on(row, user)
     return {"applied": applied, "skipped": skipped,
             "lines": diff, "review": result}
 
@@ -355,18 +362,30 @@ async def inbound_webhook(request: Request):
             403, "inbound approve/publish is disabled "
                  "(INBOUND_ALLOW_AUTOPUBLISH=0)")
 
+    from starlette.concurrency import run_in_threadpool
+    # Validation stays on the event loop; the sync DB/LLM stack runs in the
+    # threadpool so one inbound review can't freeze every other request.
+    return await run_in_threadpool(_perform_inbound, action, cid)
+
+
+def _perform_inbound(action: str, cid: int) -> dict:
     actor = "inbound-webhook"
+    if action == "review":
+        from .review_service import run_review_on
+        with db.get() as conn:
+            row = _content(conn, cid)
+        system_user = {"email": "inbound-webhook@brandguard.system",
+                       "role": "reviewer"}
+        result = run_review_on(row, system_user)
+        with db.get() as conn:
+            db.log_audit(conn, cid, actor, "inbound_review",
+                         "triggered via inbound webhook")
+            conn.commit()
+        return {"action": "review", "content_id": cid, "review": result}
+
     with db.get() as conn:
         row = _content(conn, cid)
-        if action == "review":
-            from .review_service import run_review_on
-            system_user = {"email": "inbound-webhook@brandguard.system", "role": "reviewer"}
-            result = run_review_on(conn, row, system_user)
-            db.log_audit(conn, cid, actor, "inbound_review", "triggered via inbound webhook")
-            conn.commit()
-            return {"action": "review", "content_id": cid, "review": result}
-
-        elif action == "approve":
+        if action == "approve":
             if row["status"] not in ("review", "peer_review"):
                 raise HTTPException(
                     409, f"approval only from 'review'/'peer_review' (now '{row['status']}')")
@@ -383,21 +402,21 @@ async def inbound_webhook(request: Request):
             updated = db.one(conn, "SELECT * FROM content WHERE id=?", (cid,))
             return {"action": "approve", "content": updated}
 
-        elif action == "publish":
-            if row["status"] != "approved":
-                raise HTTPException(
-                    409, f"only approved content publishes (now '{row['status']}')")
-            import datetime as _dt
-            now = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-            conn.execute("UPDATE content SET status='published', published_at=? WHERE id=?", (now, cid))
-            _snapshot(conn, cid, actor)
-            webhook_res = _dispatch_webhook("content.published", cid, {
-                "channel": row["channel"], "title": row["title"], "published_by": actor})
-            slack_res = _dispatch_slack(row, actor)
-            db.log_audit(conn, cid, actor, "publish", json.dumps({"webhook": webhook_res, "slack": slack_res}))
-            conn.commit()
-            updated = db.one(conn, "SELECT * FROM content WHERE id=?", (cid,))
-            return {"action": "publish", "content": updated, "webhook": webhook_res, "slack": slack_res}
+        # action == "publish"
+        if row["status"] != "approved":
+            raise HTTPException(
+                409, f"only approved content publishes (now '{row['status']}')")
+        import datetime as _dt
+        now = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        conn.execute("UPDATE content SET status='published', published_at=? WHERE id=?", (now, cid))
+        _snapshot(conn, cid, actor)
+        webhook_res = _dispatch_webhook("content.published", cid, {
+            "channel": row["channel"], "title": row["title"], "published_by": actor})
+        slack_res = _dispatch_slack(row, actor)
+        db.log_audit(conn, cid, actor, "publish", json.dumps({"webhook": webhook_res, "slack": slack_res}))
+        conn.commit()
+        updated = db.one(conn, "SELECT * FROM content WHERE id=?", (cid,))
+        return {"action": "publish", "content": updated, "webhook": webhook_res, "slack": slack_res}
 
 
 # --- audit integrity -------------------------------------------------------

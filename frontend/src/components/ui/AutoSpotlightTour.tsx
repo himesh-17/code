@@ -428,6 +428,16 @@ export default function AutoSpotlightTour({
     }
   }, [isActive, currentStep, stepIndex])
 
+  // Escape closes the tour like any other modal.
+  useEffect(() => {
+    if (!isActive) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') finish()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isActive, finish])
+
   const handleNext = () => {
     if (stepIndex >= AUTO_TOUR_STEPS.length - 1) { finish(); return }
     const step = AUTO_TOUR_STEPS[stepIndex]
@@ -520,6 +530,9 @@ export default function AutoSpotlightTour({
       {/* Floating tour card */}
       <div
         ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="BrandGuard guided tour"
         className="fixed z-[10001] pointer-events-auto w-[min(28rem,calc(100vw-32px))] bg-surface border border-hairline-strong rounded-xl shadow-2xl p-5 text-ink"
         style={cardStyle}
       >
