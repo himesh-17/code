@@ -47,7 +47,7 @@ def _passage(text: str, limit: int = PASSAGE_LIMIT) -> str:
 
 
 def attach_citations(findings: list[Finding], content_text: str,
-                     top_k: int = 5) -> list[Finding]:
+                     top_k: int = 5, force_local: bool = False) -> list[Finding]:
     """Append the exact source passage to each finding's evidence.
 
     Retrieval happens once per submission (semantic, over kb_chunk); each
@@ -56,7 +56,7 @@ def attach_citations(findings: list[Finding], content_text: str,
     citation must never point at an unrelated passage."""
     if not findings or not content_text or not content_text.strip():
         return findings
-    chunks = relevant_kb_chunks(content_text, top_k=top_k)
+    chunks = relevant_kb_chunks(content_text, top_k=top_k, force_local=force_local)
     if not chunks:
         return findings
     chunk_tokens = [set(tokenize(c["text"])) for c in chunks]

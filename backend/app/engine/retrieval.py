@@ -101,7 +101,8 @@ def search_chunks(conn, query_vec: list[float], top_k: int = 3) -> list[dict]:
 
 
 def relevant_kb_chunks(content: str, top_k: int = 3,
-                       vec: list[float] | None = None) -> list[dict]:
+                       vec: list[float] | None = None,
+                       force_local: bool = False) -> list[dict]:
     """kb_chunk passages most relevant to this content (semantic retrieval).
 
     Pass `vec` to reuse a pre-computed embedding and skip the API call.
@@ -111,7 +112,7 @@ def relevant_kb_chunks(content: str, top_k: int = 3,
         return []
     with db.get() as conn:
         if vec is None:
-            vec = embed_texts([content])[0]
+            vec = embed_texts([content], force_local=force_local)[0]
         return search_chunks(conn, vec, top_k)
 
 

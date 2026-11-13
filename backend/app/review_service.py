@@ -46,17 +46,18 @@ def run_review_on(row: dict, user: dict,
     if row["image_path"] and time.monotonic() - start < budget:
         findings += _stamp(visual.check(row["image_path"]),
                            "Guideline: Visual Identity (palette)")
-        vision_findings, vision_tokens = vision.check(row["image_path"])
-        findings += _stamp(vision_findings,
-                           "Vision OCR + pixel WCAG (Gemini)")
-        tokens += vision_tokens
+        if not force_mock:
+            vision_findings, vision_tokens = vision.check(row["image_path"])
+            findings += _stamp(vision_findings,
+                               "Vision OCR + pixel WCAG (Gemini)")
+            tokens += vision_tokens
     elif row["image_path"]:
         log.warning("review %s: budget exhausted before vision check", cid)
 
     # Living KB v2: cite the exact guideline passage behind each finding
     # (semantic retrieval over kb_chunk — no-op when the KB has no chunks)
     if time.monotonic() - start < budget:
-        findings = attach_citations(findings, row["text"])
+        findings = attach_citations(findings, row["text"], force_local=force_mock)
     else:
         log.warning("review %s: budget exhausted before citations", cid)
 
@@ -88,7 +89,13 @@ def run_review_on(row: dict, user: dict,
         stored = db.rows(conn, "SELECT * FROM finding WHERE content_id=? "
                          "AND superseded=0 ORDER BY id", (cid,))
 
+    model_name = {
+        "groq": settings.groq_model,
+        "openai": settings.openai_model,
+        "mock": "mock-rules",
+    }.get(provider, provider)
     return ReviewResult(content_id=cid,
                         findings=[Finding(**f) for f in stored],
-                        provider=provider, llm_used=llm_used,
+                        provider=provider, model=model_name,
+                        llm_used=llm_used,
                         latency_ms=latency, tokens=tokens)

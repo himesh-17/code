@@ -197,6 +197,8 @@ def edit_content(cid: int, body: ContentPatch,
                  user: dict = Depends(current_user)):
     with db.get() as conn:
         row = _content(conn, cid)
+        if not can_view_content(user, row):
+            raise HTTPException(403, "not allowed to edit this content")
         if row["status"] in LOCKED:
             raise HTTPException(403, "approved/published content is locked")
         if body.text is None and body.title is None:
@@ -242,7 +244,9 @@ def diff_versions(cid: int, frm: int, to: int,
                   user: dict = Depends(current_user)):
     """Side-by-side source for the UI: unified-diff line list."""
     with db.get() as conn:
-        _content(conn, cid)
+        row = _content(conn, cid)
+        if not can_view_content(user, row):
+            raise HTTPException(403, "not allowed to view this content")
         a = db.one(conn, "SELECT * FROM content_version WHERE content_id=? "
                          "AND version=?", (cid, frm))
         b = db.one(conn, "SELECT * FROM content_version WHERE content_id=? "
@@ -265,6 +269,8 @@ def remediate(cid: int, body: RemediateBody,
               user: dict = Depends(require_role("reviewer"))):
     with db.get() as conn:
         row = _content(conn, cid)
+        if not can_view_content(user, row):
+            raise HTTPException(403, "not allowed to remediate this content")
         if row["status"] in LOCKED:
             raise HTTPException(409, "approved/published content is locked")
         finds = db.rows(conn, "SELECT * FROM finding WHERE content_id=? "
@@ -307,6 +313,8 @@ def remediate(cid: int, body: RemediateBody,
 def publish(cid: int, user: dict = Depends(require_role("manager"))):
     with db.get() as conn:
         row = _content(conn, cid)
+        if not can_view_content(user, row):
+            raise HTTPException(403, "not allowed to publish this content")
         require_transition(row["status"], "published", user["role"])
         import datetime as _dt
         now = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")

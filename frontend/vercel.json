@@ -5,6 +5,7 @@
     { "source": "/content/:path*",   "destination": "https://branguard-ai.onrender.com/content/:path*" },
     { "source": "/findings/:path*",  "destination": "https://branguard-ai.onrender.com/findings/:path*" },
     { "source": "/comments/:path*",  "destination": "https://branguard-ai.onrender.com/comments/:path*" },
+    { "source": "/integrations/:path*", "destination": "https://branguard-ai.onrender.com/integrations/:path*" },
     { "source": "/kb/:path*",        "destination": "https://branguard-ai.onrender.com/kb/:path*" },
     { "source": "/analytics/:path*", "destination": "https://branguard-ai.onrender.com/analytics/:path*" },
     { "source": "/audit",            "destination": "https://branguard-ai.onrender.com/audit" },

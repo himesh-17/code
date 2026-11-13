@@ -112,7 +112,10 @@ def _read_file_text(upload: UploadFile) -> str:
 
     Extension-dispatched: a corrupt PDF/DOCX returns "" (honest
     'no text found') instead of decoding binary garbage into chunks."""
-    data = upload.file.read()
+    data = upload.file.read(settings.max_upload_bytes + 1)
+    if len(data) > settings.max_upload_bytes:
+        raise HTTPException(
+            413, f"document exceeds {settings.max_upload_bytes // (1024 * 1024)}MB limit")
     if not data:
         return ""
     return _extract_text(data, (upload.filename or "").lower())
@@ -199,62 +202,54 @@ def kb_documents(_: dict = Depends(current_user)):
 
 
 # --- per-table CRUD (generated from SPEC, one code path) -------------------
-for _kind, _spec in SPEC.items():
-    def _list(kind: str = _kind, user: dict = Depends(current_user)):
+def _register_kb_crud(kind: str, spec: dict):
+    def _list(user: dict = Depends(current_user)):
         with db.get() as conn:
-            return db.rows(conn, f"SELECT * FROM {SPEC[kind]['table']} "
-                                 "ORDER BY id")
+            return db.rows(conn, f"SELECT * FROM {spec['table']} ORDER BY id")
 
-    def _create(kind: str = _kind, body: dict | None = None,
+    def _create(body: dict | None = None,
                 user: dict = Depends(require_role("manager"))):
         data = _check(kind, body or {})
         with db.get() as conn:
             cols = ", ".join(data)
             ph = ", ".join("?" * len(data))
             cur = conn.execute(
-                f"INSERT INTO {SPEC[kind]['table']} ({cols}) VALUES ({ph})"
+                f"INSERT INTO {spec['table']} ({cols}) VALUES ({ph})"
                 " RETURNING id",
                 tuple(data.values()))
             new_id = cur.fetchone()["id"]
             db.log_audit(conn, None, user["email"], f"kb_create_{kind}",
                          str(data)[:200])
             conn.commit()
-            return db.one(conn, f"SELECT * FROM {SPEC[kind]['table']} "
-                                "WHERE id=?", (new_id,))
+            return db.one(conn, f"SELECT * FROM {spec['table']} WHERE id=?", (new_id,))
 
-    def _update(i: int, kind: str = _kind, body: dict | None = None,
+    def _update(i: int, body: dict | None = None,
                 user: dict = Depends(require_role("manager"))):
         with db.get() as conn:
-            if not db.one(conn, f"SELECT id FROM {SPEC[kind]['table']} "
-                                "WHERE id=?", (i,)):
+            if not db.one(conn, f"SELECT id FROM {spec['table']} WHERE id=?", (i,)):
                 raise HTTPException(404, f"{kind} not found")
             data = _check(kind, body or {})
             sets = ", ".join(f"{k}=?" for k in data)
-            conn.execute(f"UPDATE {SPEC[kind]['table']} SET {sets} WHERE id=?",
+            conn.execute(f"UPDATE {spec['table']} SET {sets} WHERE id=?",
                          (*data.values(), i))
-            db.log_audit(conn, None, user["email"], f"kb_update_{kind}",
-                         f"id={i}")
+            db.log_audit(conn, None, user["email"], f"kb_update_{kind}", f"id={i}")
             conn.commit()
-            return db.one(conn, f"SELECT * FROM {SPEC[kind]['table']} "
-                                "WHERE id=?", (i,))
+            return db.one(conn, f"SELECT * FROM {spec['table']} WHERE id=?", (i,))
 
-    def _delete(i: int, kind: str = _kind,
-                user: dict = Depends(require_role("manager"))):
+    def _delete(i: int, user: dict = Depends(require_role("manager"))):
         with db.get() as conn:
-            if not db.one(conn, f"SELECT id FROM {SPEC[kind]['table']} "
-                                "WHERE id=?", (i,)):
+            if not db.one(conn, f"SELECT id FROM {spec['table']} WHERE id=?", (i,)):
                 raise HTTPException(404, f"{kind} not found")
-            conn.execute(f"DELETE FROM {SPEC[kind]['table']} WHERE id=?", (i,))
-            db.log_audit(conn, None, user["email"], f"kb_delete_{kind}",
-                         f"id={i}")
+            conn.execute(f"DELETE FROM {spec['table']} WHERE id=?", (i,))
+            db.log_audit(conn, None, user["email"], f"kb_delete_{kind}", f"id={i}")
             conn.commit()
         return {"deleted": i}
 
-    router.add_api_route(f"/{_kind}", _list, methods=["GET"],
-                         name=f"list_{_kind}")
-    router.add_api_route(f"/{_kind}", _create, methods=["POST"],
-                         name=f"create_{_kind}", status_code=201)
-    router.add_api_route(f"/{_kind}/{{i}}", _update, methods=["PATCH"],
-                         name=f"update_{_kind}")
-    router.add_api_route(f"/{_kind}/{{i}}", _delete, methods=["DELETE"],
-                         name=f"delete_{_kind}")
+    router.add_api_route(f"/{kind}", _list, methods=["GET"], name=f"list_{kind}")
+    router.add_api_route(f"/{kind}", _create, methods=["POST"], name=f"create_{kind}", status_code=201)
+    router.add_api_route(f"/{kind}/{{i}}", _update, methods=["PATCH"], name=f"update_{kind}")
+    router.add_api_route(f"/{kind}/{{i}}", _delete, methods=["DELETE"], name=f"delete_{kind}")
+
+
+for _k, _s in SPEC.items():
+    _register_kb_crud(_k, _s)

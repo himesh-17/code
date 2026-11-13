@@ -43,13 +43,13 @@ def reset_client() -> None:
     _client_cache = None
 
 
-def embed_texts(texts: list[str]) -> list[list[float]]:
+def embed_texts(texts: list[str], force_local: bool = False) -> list[list[float]]:
     """Embed a list of texts.
 
-    Calls Gemini if gemini_api_key is set; otherwise falls back to the
+    Calls Gemini if gemini_api_key is set and not force_local; otherwise falls back to the
     deterministic local Hashtable‑based 256‑d encoder.
     """
-    if not settings.gemini_api_key:
+    if force_local or not settings.gemini_api_key:
         return [_local(t) for t in texts]
 
     try:

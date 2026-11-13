@@ -213,7 +213,7 @@ def refresh(request: Request, body: dict = Body(...)):
     auth.revoke(claims["jti"])                      # rotation: old dies
     with db.get() as conn:
         user = db.one(conn, "SELECT * FROM users WHERE id=? AND active=1",
-                      (claims["sub"],))
+                      (int(claims["sub"]),))
     if not user:
         raise HTTPException(401, "User gone")
     access = auth.create_access(user)
@@ -223,15 +223,24 @@ def refresh(request: Request, body: dict = Body(...)):
 
 
 @app.post("/auth/logout")
-def logout(request: Request):
-    header = request.headers.get("Authorization", "")
-    if header.lower().startswith("bearer "):
+async def logout(request: Request):
+    token = ""
+    try:
+        data = await request.json()
+        token = data.get("refresh_token", "")
+    except Exception:
+        pass
+    if not token:
+        header = request.headers.get("Authorization", "")
+        if header.lower().startswith("bearer "):
+            token = header[7:].strip()
+    if token:
         try:
-            claims = auth._decode(header[7:].strip(), "refresh")
+            claims = auth._decode(token, "refresh")
             auth.revoke(claims["jti"])
+            sub = int(claims["sub"]) if claims.get("sub") else None
             with db.get() as conn:
-                row = db.one(conn, "SELECT email FROM users WHERE id=?",
-                             (claims.get("sub"),))
+                row = db.one(conn, "SELECT email FROM users WHERE id=?", (sub,)) if sub else None
                 db.log_audit(conn, None, row["email"] if row else "unknown",
                              "logout", "")
                 conn.commit()
@@ -374,6 +383,8 @@ def run_review(cid: int, request: Request, force_mock: bool = False,
         row = db.one(conn, "SELECT * FROM content WHERE id=?", (cid,))
         if not row:
             raise HTTPException(404, "content not found")
+        if not auth.can_view_content(user, row):
+            raise HTTPException(403, "not allowed to review this content")
         if row["status"] in LOCKED:
             raise HTTPException(
                 409, f"cannot review locked content (status '{row['status']}')")
@@ -389,6 +400,9 @@ def patch_finding(fid: int, body: FindingPatch,
         row = db.one(conn, "SELECT * FROM finding WHERE id=?", (fid,))
         if not row:
             raise HTTPException(404, "finding not found")
+        parent = db.one(conn, "SELECT status FROM content WHERE id=?", (row["content_id"],))
+        if parent and parent["status"] in LOCKED:
+            raise HTTPException(409, "cannot modify findings of locked content")
         conn.execute("UPDATE finding SET accepted=? WHERE id=?",
                      (body.accepted, fid))
         db.log_audit(conn, row["content_id"], user["email"],
@@ -432,7 +446,7 @@ def request_changes(cid: int,
         if not row:
             raise HTTPException(404, "content not found")
         require_transition(row["status"], "changes", user["role"])
-        conn.execute("UPDATE content SET status='changes' WHERE id=?",
+        conn.execute("UPDATE content SET status='changes', sla_due_at=NULL WHERE id=?",
                      (cid,))
         from .workflow import _snapshot
         _snapshot(conn, cid, actor)
@@ -644,9 +658,11 @@ def upload_image(cid: int, file: UploadFile = File(...),
             raise HTTPException(400, "SVG contains disallowed active scripts")
 
     with db.get() as conn:
-        row = db.one(conn, "SELECT id, status FROM content WHERE id=?", (cid,))
+        row = db.one(conn, "SELECT id, status, created_by, team FROM content WHERE id=?", (cid,))
         if not row:
             raise HTTPException(404, "content not found")
+        if not auth.can_view_content(user, row):
+            raise HTTPException(403, "not allowed to modify this content")
         # Approved/published copy is immutable: no swapping the image behind
         # an already-signed-off asset.
         if row["status"] in LOCKED:
@@ -654,10 +670,11 @@ def upload_image(cid: int, file: UploadFile = File(...),
                 409, f"cannot modify locked content (status '{row['status']}')")
 
     # safe filename: uuid + basename only (no path traversal)
+    orig_name = Path(file.filename or "image.png").name
     safe = f"{cid}_{uuid.uuid4().hex[:8]}.png" if not re.fullmatch(
         r"[\w.\- ]+\.(png|jpe?g|webp|gif|svg)",
-        Path(file.filename or "").name, re.IGNORECASE) else \
-        f"{cid}_{uuid.uuid4().hex[:8]}_{Path(file.filename).name}"
+        orig_name, re.IGNORECASE) else \
+        f"{cid}_{uuid.uuid4().hex[:8]}_{orig_name}"
     dest = Path(settings.upload_dir) / safe
     dest.write_bytes(data)
 

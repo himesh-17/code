@@ -12,7 +12,10 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 *.db
+*.db-*
+*.db-journal
 *.sqlite3
+data/
 
 # Node.js
 node_modules/

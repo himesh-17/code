@@ -5,7 +5,7 @@ import path from 'path'
 
 const API = process.env.VITE_API_URL || 'http://localhost:8001'
 const proxied = ['/auth', '/content', '/findings', '/kb', '/analytics',
-                 '/audit', '/health', '/comments', '/integrations']
+                 '/audit', '/health', '/comments', '/integrations', '/uploads']
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
