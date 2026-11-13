@@ -17,7 +17,7 @@ and the exact environment checklist for deployment.
 | Frontend build | `cd frontend && pnpm build` | clean, ~200–400 ms |
 | Frontend lint | `cd frontend && pnpm lint` | **0 errors, 0 warnings** |
 | Bundle | build output | entry **53.78 kB / 15.58 kB gzip**; vendor-react 212.6 kB, vendor-chart 199.2 kB (both lazy) |
-| Live backend | `GET https://branguard-ai.onrender.com/health` | 200, provider `groq`, HSTS + Permissions-Policy + X-Request-ID present |
+| Live backend | `GET https://branguard-ai-sg.onrender.com/health` | 200, provider `groq`, HSTS + Permissions-Policy + X-Request-ID present |
 
 ---
 
@@ -89,7 +89,7 @@ clean-up. Verified safe against the full suite.
 | Item | Decision | Why |
 | --- | --- | --- |
 | `STRICT_CONFIG` defaults off | Loud log + `/health` flags; opt-in hard fail | A hard fail could brick the live demo if a Render var is missing. Flip `STRICT_CONFIG=1` after confirming `/health`. |
-| Uploads on ephemeral disk | Documented; disk block commented in `render.yaml` | Render free has no persistent disks; Postgres holds all durable data. |
+| Uploads on ephemeral disk | Mirrored to Supabase Storage | Render free has no persistent disks; `SUPABASE_*` env vars mirror every upload to a public bucket and serve it back when the local copy is gone. Without the vars the app behaves exactly as before (local only). |
 | `/uploads` served without auth | Accepted | `<img src>` cannot send a bearer token; creatives are demo assets. |
 | In-memory rate limiter | Per-process | Single Render instance; multi-worker would need Redis. |
 | No login lockout / MFA | Out of scope | Rate limit + short token TTL is proportionate for the demo. |
@@ -114,12 +114,15 @@ clean-up. Verified safe against the full suite.
 
 ### Vercel (frontend)
 - [ ] `frontend/vercel.json` rewrites point at the Render origin
-      (`https://branguard-ai.onrender.com`). Only change if the backend host changes.
+      (`https://branguard-ai-sg.onrender.com`). Only change if the backend host changes.
 - [ ] Production URL `https://ai-brandguard.vercel.app` (submitted — do not change).
 
 ### Supabase
 - [ ] Postgres project healthy; pooler connection string used.
 - [ ] Region: closest available to users (Singapore `ap-southeast-1` recommended).
+- [ ] Storage bucket `uploads` created — public, 5 MB limit, image MIME types only.
+- [ ] `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` / `SUPABASE_BUCKET` set on **both**
+      Render services (`branguard-ai-sg` live, `branguard-ai` standby).
 
 ---
 
@@ -151,7 +154,8 @@ clean-up. Verified safe against the full suite.
 - Migrate backend to Singapore (or Fly `bom`) + Supabase Singapore via
   blue-green: new service → dump/restore → update `vercel.json` rewrites →
   redeploy Vercel → delete old service.
-- Persistent uploads (Render disk on paid, or Supabase Storage).
+- Persistent uploads: **done** — Supabase Storage mirror (free tier) behind the
+  `SUPABASE_*` env vars; the Render disk block in `render.yaml` stays commented.
 - Login lockout + optional MFA; move rate limiting to Redis if scaling.
 - Frontend test framework (Playwright smoke) + CI job.
 - Pagination on content/audit lists in the UI.

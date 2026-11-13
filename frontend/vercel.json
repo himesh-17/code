@@ -1,16 +1,16 @@
 {
   "rewrites": [
-    { "source": "/auth/:path*",      "destination": "https://branguard-ai.onrender.com/auth/:path*" },
-    { "source": "/content",          "destination": "https://branguard-ai.onrender.com/content" },
-    { "source": "/content/:path*",   "destination": "https://branguard-ai.onrender.com/content/:path*" },
-    { "source": "/findings/:path*",  "destination": "https://branguard-ai.onrender.com/findings/:path*" },
-    { "source": "/comments/:path*",  "destination": "https://branguard-ai.onrender.com/comments/:path*" },
-    { "source": "/integrations/:path*", "destination": "https://branguard-ai.onrender.com/integrations/:path*" },
-    { "source": "/kb/:path*",        "destination": "https://branguard-ai.onrender.com/kb/:path*" },
-    { "source": "/analytics/:path*", "destination": "https://branguard-ai.onrender.com/analytics/:path*" },
-    { "source": "/audit",            "destination": "https://branguard-ai.onrender.com/audit" },
-    { "source": "/audit/:path*",     "destination": "https://branguard-ai.onrender.com/audit/:path*" },
-    { "source": "/health",           "destination": "https://branguard-ai.onrender.com/health" },
-    { "source": "/uploads/:path*",   "destination": "https://branguard-ai.onrender.com/uploads/:path*" }
+    { "source": "/auth/:path*",      "destination": "https://branguard-ai-sg.onrender.com/auth/:path*" },
+    { "source": "/content",          "destination": "https://branguard-ai-sg.onrender.com/content" },
+    { "source": "/content/:path*",   "destination": "https://branguard-ai-sg.onrender.com/content/:path*" },
+    { "source": "/findings/:path*",  "destination": "https://branguard-ai-sg.onrender.com/findings/:path*" },
+    { "source": "/comments/:path*",  "destination": "https://branguard-ai-sg.onrender.com/comments/:path*" },
+    { "source": "/integrations/:path*", "destination": "https://branguard-ai-sg.onrender.com/integrations/:path*" },
+    { "source": "/kb/:path*",        "destination": "https://branguard-ai-sg.onrender.com/kb/:path*" },
+    { "source": "/analytics/:path*", "destination": "https://branguard-ai-sg.onrender.com/analytics/:path*" },
+    { "source": "/audit",            "destination": "https://branguard-ai-sg.onrender.com/audit" },
+    { "source": "/audit/:path*",     "destination": "https://branguard-ai-sg.onrender.com/audit/:path*" },
+    { "source": "/health",           "destination": "https://branguard-ai-sg.onrender.com/health" },
+    { "source": "/uploads/:path*",   "destination": "https://branguard-ai-sg.onrender.com/uploads/:path*" }
   ]
 }

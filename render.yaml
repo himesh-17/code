@@ -6,7 +6,7 @@
 # disappear on redeploy. Postgres (Supabase) holds all durable data.
 services:
   - type: web
-    name: branguard-ai
+    name: branguard-ai-sg
     runtime: python
     plan: free
     # Closest free region to India; change to "singapore" only if the
