@@ -294,6 +294,7 @@ export default function AutoSpotlightTour({
   })
   const [highlightRect, setHighlightRect] = useState<DOMRect | null>(null)
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  const [cardSize, setCardSize] = useState<{ w: number; h: number } | null>(null)
 
   const cardRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ dx: number; dy: number } | null>(null)
@@ -428,6 +429,22 @@ export default function AutoSpotlightTour({
     }
   }, [isActive, currentStep, stepIndex])
 
+  // Measure the card once it has content (and again after webfonts land, since
+  // the copy reflows). The card is positioned with a transform, so a size
+  // change never counts as a layout shift.
+  useEffect(() => {
+    if (!isActive) return
+    const el = cardRef.current
+    if (!el) return
+    const measure = () => setCardSize((prev) => {
+      const w = el.offsetWidth
+      const h = el.offsetHeight
+      return prev && prev.w === w && prev.h === h ? prev : { w, h }
+    })
+    measure()
+    document.fonts?.ready.then(measure).catch(() => {})
+  }, [isActive, stepIndex])
+
   // Escape closes the tour like any other modal.
   useEffect(() => {
     if (!isActive) return
@@ -492,30 +509,39 @@ export default function AutoSpotlightTour({
   const h = Math.max(0, y2 - y1)
 
   // Place the card on the opposite vertical half from the target by default.
+  // Positioning is transform-based: moving a fixed element with left/top
+  // would register as a layout shift every time the step changes.
   const targetLow = highlightRect ? highlightRect.top > window.innerHeight / 2 : false
-  const cardStyle: React.CSSProperties = pos
-    ? { left: `${pos.x}px`, top: `${pos.y}px` }
-    : targetLow
-      ? { top: '24px', right: '24px' }
-      : { bottom: '24px', right: '24px' }
+  const anchorX = cardSize ? window.innerWidth - 24 - cardSize.w : 0
+  const anchorY = cardSize
+    ? targetLow
+      ? 24
+      : Math.max(24, window.innerHeight - 24 - cardSize.h)
+    : 0
+  const cardStyle: React.CSSProperties = cardSize
+    ? { left: 0, top: 0, transform: `translate3d(${pos ? pos.x : anchorX}px, ${pos ? pos.y : anchorY}px, 0)` }
+    : { visibility: 'hidden' }
 
   return (
     <div className="fixed inset-0 z-[9999] pointer-events-none">
-      {/* Four dimming panels leave the target crisp and never blur the whole page. */}
+      {/* Four dimming panels leave the target crisp and never blur the whole page.
+          They are positioned with transforms and sized from the top-left corner:
+          a size change is not a layout shift, and a transform move is not
+          either — resizing via top/left would shift on every rect update. */}
       {highlightRect && (
         <>
-          <div className="fixed left-0 right-0 top-0 bg-black/60 backdrop-blur-[3px] pointer-events-auto"
-               style={{ height: `${y1}px` }} />
-          <div className="fixed left-0 right-0 bottom-0 bg-black/60 backdrop-blur-[3px] pointer-events-auto"
-               style={{ top: `${y2}px` }} />
-          <div className="fixed left-0 bg-black/60 backdrop-blur-[3px] pointer-events-auto"
-               style={{ top: `${y1}px`, height: `${h}px`, width: `${x1}px` }} />
-          <div className="fixed right-0 bg-black/60 backdrop-blur-[3px] pointer-events-auto"
-               style={{ top: `${y1}px`, height: `${h}px`, left: `${x2}px` }} />
+          <div className="fixed left-0 top-0 bg-black/60 backdrop-blur-[3px] pointer-events-auto"
+               style={{ width: '100%', height: `${y1}px` }} />
+          <div className="fixed left-0 top-0 bg-black/60 backdrop-blur-[3px] pointer-events-auto"
+               style={{ width: '100%', height: `calc(100% - ${y2}px)`, transform: `translate3d(0, ${y2}px, 0)` }} />
+          <div className="fixed left-0 top-0 bg-black/60 backdrop-blur-[3px] pointer-events-auto"
+               style={{ width: `${x1}px`, height: `${h}px`, transform: `translate3d(0, ${y1}px, 0)` }} />
+          <div className="fixed left-0 top-0 bg-black/60 backdrop-blur-[3px] pointer-events-auto"
+               style={{ width: `calc(100% - ${x2}px)`, height: `${h}px`, transform: `translate3d(${x2}px, ${y1}px, 0)` }} />
 
           <div
             className="fixed pointer-events-none rounded-xl border-2 border-accent shadow-[0_0_0_1px_rgba(163,147,191,0.3),0_0_30px_rgba(163,147,191,0.45)] z-[10000] transition-all duration-150"
-            style={{ top: `${y1}px`, left: `${x1}px`, width: `${w}px`, height: `${h}px` }}
+            style={{ left: 0, top: 0, width: `${w}px`, height: `${h}px`, transform: `translate3d(${x1}px, ${y1}px, 0)` }}
           >
             <div className="absolute -top-3.5 -right-3.5 flex h-7 w-7 items-center justify-center">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75" />

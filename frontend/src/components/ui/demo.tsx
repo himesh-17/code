@@ -119,8 +119,10 @@ export default function DotGlobeHeroDemo({ onLogin, onSignUp }: DotGlobeHeroDemo
             Autonomous brand governance
           </span>
 
-          <h1 className="reveal font-serif text-5xl sm:text-6xl md:text-7xl xl:text-8xl leading-[0.98]
-            tracking-tight mt-6" style={{ transitionDelay: '60ms' }}>
+          {/* No .reveal here: the headline is the LCP element, and a fade-in
+              starts it at opacity 0 — which disqualifies it from LCP. */}
+          <h1 className="font-serif text-5xl sm:text-6xl md:text-7xl xl:text-8xl leading-[0.98]
+            tracking-tight mt-6">
             Brand integrity,
             <br />
             <em className="italic text-accent">governed</em> end to end.
