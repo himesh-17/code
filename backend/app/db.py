@@ -216,7 +216,9 @@ CREATE TABLE IF NOT EXISTS kb_chunk (
     embedding   TEXT NOT NULL,          -- JSON vector (portable truth)
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+"""
 
+INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_finding_content ON finding(content_id);
 CREATE INDEX IF NOT EXISTS idx_finding_content_sup ON finding(content_id, superseded);
 CREATE INDEX IF NOT EXISTS idx_finding_gate ON finding(content_id, superseded, severity, accepted);
@@ -274,21 +276,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
         if col not in cols:
             conn.execute(ddl)
-    for idx_ddl in (
-        "CREATE INDEX IF NOT EXISTS idx_finding_content ON finding(content_id)",
-        "CREATE INDEX IF NOT EXISTS idx_finding_gate ON finding(content_id, superseded, severity, accepted)",
-        "CREATE INDEX IF NOT EXISTS idx_content_status ON content(status)",
-        "CREATE INDEX IF NOT EXISTS idx_content_created ON content(created_at)",
-        "CREATE INDEX IF NOT EXISTS idx_finding_created ON finding(created_at, superseded)",
-        "CREATE INDEX IF NOT EXISTS idx_user_email ON users(email)",
-        "CREATE INDEX IF NOT EXISTS idx_version_content ON content_version(content_id)",
-        "CREATE INDEX IF NOT EXISTS idx_comment_content ON comment(content_id)",
-        "CREATE INDEX IF NOT EXISTS idx_refresh_user ON refresh_token(user_id)",
-        "CREATE INDEX IF NOT EXISTS idx_kb_chunk_source ON kb_chunk(source)",
-        "CREATE INDEX IF NOT EXISTS idx_audit_action ON audit(action)",
-        "CREATE INDEX IF NOT EXISTS idx_audit_content ON audit(content_id)",
-    ):
-        conn.execute(idx_ddl)
+    conn.executescript(INDEXES)
 
 
 def _rename_legacy_user(conn: sqlite3.Connection) -> None:
@@ -336,6 +324,7 @@ def init() -> None:
                         conn.execute(ddl)
                     except Exception as e:
                         log.warning("pg migration skipped (%s): %s", ddl[:60], e)
+                conn.executescript(INDEXES)
                 conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
                 conn.execute(
                     "ALTER TABLE kb_chunk ADD COLUMN IF NOT EXISTS "
