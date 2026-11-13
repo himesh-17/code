@@ -56,6 +56,7 @@ class ReviewResult(BaseModel):
     content_id: int
     findings: list[Finding]
     provider: str
+    model: str = ""
     llm_used: bool
     latency_ms: int
     tokens: int = 0
