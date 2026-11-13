@@ -71,7 +71,7 @@ const AUTO_TOUR_STEPS: TourStep[] = [
     title: 'Creator: Fill the Draft',
     subtitle: 'Title + copy body',
     description:
-      'The title and copy body are what the AI evaluates. Channel and type are optional metadata used for routing and analytics.',
+      'The title and copy body are what the AI evaluates. Channel and type are optional metadata used for routing and analytics. Creatives uploaded here are capped at 5 MB and, once signed off, cannot be swapped.',
     role: 'creator',
     route: '',
     targetSelector: '[data-tour="create-form"]',
@@ -84,7 +84,7 @@ const AUTO_TOUR_STEPS: TourStep[] = [
     title: 'Creator: Submit & Open',
     subtitle: 'Hand off to review',
     description:
-      'Create & Open submits the draft and jumps straight into its review workspace, where the evaluation runs.',
+      'Create & Open submits the draft and jumps straight into its review workspace, where the evaluation runs. Creators only see their own and their team\'s content — multi-tenant scoping is enforced server-side.',
     role: 'creator',
     route: '',
     targetSelector: '[data-tour="create-open-btn"]',
@@ -126,7 +126,7 @@ const AUTO_TOUR_STEPS: TourStep[] = [
     title: 'Reviewer: Run AI Evaluation',
     subtitle: 'Autonomous compliance pass',
     description:
-      'The evaluation checks the draft against the live brand knowledge base and returns cited, severity-ranked findings.',
+      'The evaluation checks the draft against the live brand knowledge base and returns cited, severity-ranked findings. Reference blocks are treated strictly as data, so injected instructions in brand docs cannot hijack the pass.',
     role: 'reviewer',
     route: '',
     targetSelector: '[data-tour="run-eval-btn"]',
@@ -180,7 +180,7 @@ const AUTO_TOUR_STEPS: TourStep[] = [
     title: 'Manager: Approve or Request Changes',
     subtitle: 'The gated shipping decision',
     description:
-      'Approve is disabled while any critical finding is unresolved. Request Changes sends the draft back to the creator for another pass.',
+      'Approve is disabled while any critical finding is unresolved. Request Changes sends the draft back to the creator for another pass — and pauses the SLA clock for that draft. Once approved, the content is immutable: edits, uploads and finding triage are rejected server-side.',
     role: 'manager',
     route: '',
     targetSelector: '[data-tour="manager-actions"]',
@@ -260,7 +260,7 @@ const AUTO_TOUR_STEPS: TourStep[] = [
     title: 'Walkthrough Complete',
     subtitle: 'Creator → Reviewer → Manager → Admin',
     description:
-      'You have followed a single draft through all four roles: authored, evaluated, triaged, approved and audited. Click Finish to sign out.',
+      'You have followed a single draft through all four roles: authored, evaluated, triaged, approved and audited. Every action above is sealed into the hash-chained audit trail, verified via /audit/verify, and platform config is disclosed at /health. Click Finish to sign out.',
     role: 'admin',
     route: '',
     instruction: 'Finish the tour to return to the login screen.',

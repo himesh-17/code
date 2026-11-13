@@ -390,10 +390,24 @@ def _chain_hash(prev: str, content_id, actor: str, action: str,
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
+_AUDIT_LOCK = 917_331  # arbitrary pg advisory-lock key for the audit chain
+
+
 def log_audit(conn: sqlite3.Connection, content_id, actor: str,
               action: str, detail: str = "", tokens: int = 0) -> None:
     """Append to the audit hash chain — every row commits to its
-    predecessor, so any retroactive edit breaks verification."""
+    predecessor, so any retroactive edit breaks verification.
+
+    The read-last-then-insert must be serialised: two concurrent appends
+    that both read the same predecessor fork the chain and make
+    verify_chain() report a break. On Postgres take a transaction-scoped
+    advisory lock (survives across workers/replicas); on SQLite start the
+    write transaction before reading (a preceding write in the same
+    transaction already holds the write lock)."""
+    if is_postgres():
+        conn.execute("SELECT pg_advisory_xact_lock(?)", (_AUDIT_LOCK,))
+    elif not conn.in_transaction:
+        conn.execute("BEGIN IMMEDIATE")
     prev = one(conn, "SELECT hash FROM audit ORDER BY id DESC LIMIT 1")
     prev_hash = (prev["hash"] or "genesis") if prev else "genesis"
     import datetime as _dt

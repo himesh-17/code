@@ -64,7 +64,9 @@ def test_upload_rejected_on_locked_content():
     from PIL import Image
     Image.new("RGB", (2, 2), "white").save(png, format="PNG")
     png.seek(0)
-    r = client.post(f"/content/{cid}/upload", headers=hdr("creator"),
+    # upload as the creator of this row (manager → team "brand"), so the
+    # scope check passes and the LOCKED guard is what rejects it
+    r = client.post(f"/content/{cid}/upload", headers=hdr("manager"),
                     files={"file": ("x.png", png, "image/png")})
     assert r.status_code == 409, r.text
 

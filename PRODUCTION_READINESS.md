@@ -11,7 +11,7 @@ and the exact environment checklist for deployment.
 
 | Gate | Command | Result |
 | --- | --- | --- |
-| Backend tests | `LLM_PROVIDER=mock .venv/bin/python -m pytest backend/tests/ -q` | **120 passed** |
+| Backend tests | `LLM_PROVIDER=mock .venv/bin/python -m pytest backend/tests/ -q` | **121 passed** |
 | Accuracy gate | `cd backend && LLM_PROVIDER=mock ../.venv/bin/python -m bench.evaluate --mock` | PASS |
 | Concurrency | `cd backend && LLM_PROVIDER=mock ../.venv/bin/python -m bench.load_test --n 50` | **0 errors, p50 836 ms, p95 2024 ms** |
 | Frontend build | `cd frontend && pnpm build` | clean, ~200–400 ms |
@@ -54,6 +54,11 @@ clean-up. Verified safe against the full suite.
   `text` capped by `MAX_CONTENT_CHARS` on create and edit.
 - Audit coverage extended: login, logout, user create / role change / delete,
   upload.
+- Audit hash-chain appends are serialized (Postgres advisory lock / SQLite
+  `BEGIN IMMEDIATE`) — concurrent writes previously linked to the same
+  predecessor and forked the chain; `backend/tests/test_audit_chain.py` covers
+  96 concurrent appends, `backend/scripts/repair_audit_chain.py` relinks an
+  existing fork (`--apply`).
 - Auth limiter lowered to 60/min and keyed on the real client IP
   (`X-Forwarded-For` first hop) instead of the Render proxy IP.
 
