@@ -62,7 +62,7 @@ function Section({ title, right, children, tourId }: {
 
 function Loading({ label }: { label: string }) {
   return (
-    <div className="space-y-5" aria-busy="true" aria-label={label}>
+    <div className="space-y-5" role="status" aria-busy="true" aria-label={label}>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="card p-5 space-y-3">

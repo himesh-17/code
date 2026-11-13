@@ -23,11 +23,10 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom') || id.includes('node_modules/scheduler')) {
+          // Path-boundary match: 'react-chartjs-2' must NOT land in the eager
+          // react chunk — chart.js is only needed by the lazy dashboard.
+          if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) {
             return 'vendor-react'
-          }
-          if (id.includes('node_modules/chart.js') || id.includes('node_modules/react-chartjs-2')) {
-            return 'vendor-chart'
           }
           if (id.includes('node_modules/lucide-react')) {
             return 'vendor-icons'
