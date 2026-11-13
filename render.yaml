@@ -1,9 +1,9 @@
 # Render blueprint for the BrandGuard AI backend.
 #
-# NOTE: free instances cannot attach persistent disks. Uploaded creatives live
-# on the ephemeral filesystem and disappear on redeploy — acceptable for the
-# hackathon demo (re-upload), or upgrade to a paid instance and uncomment the
-# disk block below. Postgres (Supabase) holds all durable data.
+# NOTE: free instances cannot attach persistent disks. Uploaded creatives are
+# mirrored to Supabase Storage (SUPABASE_* env vars) so they survive a
+# redeploy; without those keys they live on the ephemeral filesystem and
+# disappear on redeploy. Postgres (Supabase) holds all durable data.
 services:
   - type: web
     name: branguard-ai
@@ -23,6 +23,12 @@ services:
         generateValue: true          # never boot with the dev fallback
       - key: DATABASE_URL
         sync: false                  # Supabase pooler URL (secret)
+      - key: SUPABASE_URL
+        sync: false                  # https://<ref>.supabase.co (object storage)
+      - key: SUPABASE_SERVICE_KEY
+        sync: false                  # service_role key (server side only)
+      - key: SUPABASE_BUCKET
+        value: uploads
       - key: CORS_ORIGINS
         value: https://ai-brandguard.vercel.app
       - key: SEED_DEMO

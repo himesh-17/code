@@ -2,6 +2,7 @@
 import contextvars
 import io
 import logging
+import mimetypes
 import re
 import time
 import uuid
@@ -15,8 +16,7 @@ from fastapi import (FastAPI, HTTPException, UploadFile, File, Form, Request,
                      Body, Depends, Query)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse, FileResponse, Response
 from pydantic import BaseModel, Field
 
 from . import db
@@ -25,7 +25,7 @@ from .engine.citation import guideline_gaps
 from .models import (ContentCreate, ContentOut, ContentWithFindings, Finding,
                       FindingPatch, ReviewResult, AnalyticsSummary,
                       CategoryCount, TeamScore, TrendPoint, TrendResponse)
-from . import seed, auth, review_service
+from . import seed, auth, review_service, storage
 from .auth import current_user, require_role
 from .state import LOCKED, require_transition
 from .kb import router as kb_router
@@ -677,6 +677,11 @@ def upload_image(cid: int, file: UploadFile = File(...),
         f"{cid}_{uuid.uuid4().hex[:8]}_{orig_name}"
     dest = Path(settings.upload_dir) / safe
     dest.write_bytes(data)
+    # mirror to Supabase Storage so the file survives a Render redeploy
+    # (the local copy alone dies with the ephemeral filesystem)
+    if storage.push(safe, data, file.content_type or "image/png"):
+        logging.getLogger("brandguard.main").info(
+            "upload %s mirrored to storage", safe)
 
     text = alt  # alt text rides on the text field for a11y checks
     with db.get() as conn:
@@ -690,6 +695,17 @@ def upload_image(cid: int, file: UploadFile = File(...),
         return db.one(conn, "SELECT * FROM content WHERE id=?", (cid,))
 
 
-# static files for uploaded images (deploy-safe: served by this app)
-Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads")
+# Uploaded images: local copy first, Supabase Storage as the persistent
+# fallback. Render's free filesystem is wiped on every redeploy/spin-down,
+# so without the storage mirror every uploaded creative would 404.
+@app.get("/uploads/{name}")
+def serve_upload(name: str):
+    if "/" in name or ".." in name:
+        raise HTTPException(404, "not found")
+    p = Path(settings.upload_dir) / name
+    if p.is_file():
+        return FileResponse(p)
+    data = storage.fetch(name)
+    if data is None:
+        raise HTTPException(404, "not found")
+    return Response(data, media_type=mimetypes.guess_type(name)[0] or "image/png")

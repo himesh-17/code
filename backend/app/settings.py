@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     database_url: str = ""              # postgres://… (Supabase) overrides path
     upload_dir: str = str(BASE_DIR / "data" / "uploads")
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
+    # object storage (Supabase) — persists uploads across Render redeploys;
+    # empty keys = local-only (the pre-existing behaviour)
+    supabase_url: str = ""              # https://<ref>.supabase.co
+    supabase_service_key: str = ""      # service_role key — server side only
+    supabase_bucket: str = "uploads"
     review_rate_per_min: int = 10
     auth_rate_per_min: int = 60
     max_upload_bytes: int = 5 * 1024 * 1024
