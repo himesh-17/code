@@ -362,3 +362,9 @@ def test_404_paths():
     assert client.get("/content/999999", headers=hdr()).status_code == 404
     assert client.post("/content/999999/review",
                        headers=hdr()).status_code == 404
+
+
+def test_health_answers_head():
+    """Uptime probes must not false-alarm: HEAD on a GET-only route is 405."""
+    assert client.get("/health").status_code == 200
+    assert client.head("/health").status_code == 200

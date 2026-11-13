@@ -154,7 +154,7 @@ def auth_rate_limit(request: Request) -> None:
                       settings.auth_rate_per_min, 60, "Authentication")
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health() -> dict:
     from .engine import llm
     # transparency disclosure: identify the AI system and active model
