@@ -121,8 +121,9 @@ clean-up. Verified safe against the full suite.
 - [ ] Postgres project healthy; pooler connection string used.
 - [ ] Region: closest available to users (Singapore `ap-southeast-1` recommended).
 - [ ] Storage bucket `uploads` created — public, 5 MB limit, image MIME types only.
-- [ ] `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` / `SUPABASE_BUCKET` set on **both**
-      Render services (`branguard-ai-sg` live, `branguard-ai` standby).
+- [ ] `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` / `SUPABASE_BUCKET` set on the
+      live Render service (`branguard-ai-sg`); the old `branguard-ai` service
+      is suspended and needs no vars.
 
 ---
 
@@ -144,16 +145,17 @@ clean-up. Verified safe against the full suite.
 
 ## 6. Post-submission backlog
 
-- Repair the live audit chain: `/audit/verify` reports `ok:false, broken_at:33`
-  (rows 32/33 are identical duplicates from a pre-fix concurrent append). The
-  append race is fixed in code (`backend/app/db.py`) and tests are green, but
-  relinking the existing rows needs a one-shot
-  `python backend/scripts/repair_audit_chain.py --apply` run with the Render
-  env's `DATABASE_URL` (or Render shell). Not visible in any UI page, so it
+- ~~Repair the live audit chain~~ **done** — `python backend/scripts/repair_audit_chain.py
+  --apply` run with the live `DATABASE_URL` (the earlier run without
+  `DATABASE_URL` had silently repaired the local SQLite copy, not Postgres).
+  Live check now returns `{"ok": true, "checked": 216, "broken_at": null}`.
+  The append race itself was fixed earlier in `backend/app/db.py`.
   does not affect the judge demo; the fix prevents new forks.
-- Migrate backend to Singapore (or Fly `bom`) + Supabase Singapore via
-  blue-green: new service → dump/restore → update `vercel.json` rewrites →
-  redeploy Vercel → delete old service.
+- Migrate backend to Singapore: **done** — blue-green with the Render Blueprint
+  (`region: singapore`) → `branguard-ai-sg.onrender.com` → `vercel.json`
+  rewrites repointed → Vercel redeployed → old `branguard-ai` suspended.
+  Same Supabase project (`ap-southeast-1`), so no data copy was needed.
+  Measured: DB-only endpoint 0.65 s (Singapore) vs 0.81 s (Oregon).
 - Persistent uploads: **done** — Supabase Storage mirror (free tier) behind the
   `SUPABASE_*` env vars; the Render disk block in `render.yaml` stays commented.
 - Login lockout + optional MFA; move rate limiting to Redis if scaling.
