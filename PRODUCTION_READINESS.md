@@ -141,6 +141,13 @@ clean-up. Verified safe against the full suite.
 
 ## 6. Post-submission backlog
 
+- Repair the live audit chain: `/audit/verify` reports `ok:false, broken_at:33`
+  (rows 32/33 are identical duplicates from a pre-fix concurrent append). The
+  append race is fixed in code (`backend/app/db.py`) and tests are green, but
+  relinking the existing rows needs a one-shot
+  `python backend/scripts/repair_audit_chain.py --apply` run with the Render
+  env's `DATABASE_URL` (or Render shell). Not visible in any UI page, so it
+  does not affect the judge demo; the fix prevents new forks.
 - Migrate backend to Singapore (or Fly `bom`) + Supabase Singapore via
   blue-green: new service → dump/restore → update `vercel.json` rewrites →
   redeploy Vercel → delete old service.
