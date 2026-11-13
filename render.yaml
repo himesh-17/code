@@ -18,7 +18,7 @@ services:
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
-        value: "3.12.7"
+        value: "3.12.14"
       - key: JWT_SECRET
         generateValue: true          # never boot with the dev fallback
       - key: DATABASE_URL

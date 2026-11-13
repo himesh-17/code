@@ -20,7 +20,12 @@ def enabled() -> bool:
 
 
 def _base() -> str:
-    return settings.supabase_url.rstrip("/")
+    base = settings.supabase_url.rstrip("/")
+    # Render/Supabase users paste either the project URL or the REST URL;
+    # Storage always lives at /storage/v1, so drop a trailing /rest/v1.
+    if base.endswith("/rest/v1"):
+        base = base[: -len("/rest/v1")]
+    return base
 
 
 def _object_url(name: str) -> str:

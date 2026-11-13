@@ -17,6 +17,13 @@ def test_disabled_without_keys():
     assert storage.fetch("x.png") is None
 
 
+def test_base_drops_the_rest_path():
+    settings.supabase_url = "https://demo.supabase.co/rest/v1/"
+    assert storage._base() == "https://demo.supabase.co"
+    settings.supabase_url = "https://demo.supabase.co"
+    assert storage._base() == "https://demo.supabase.co"
+
+
 def test_push_and_fetch_use_the_bucket(monkeypatch):
     settings.supabase_url = "https://demo.supabase.co"
     settings.supabase_service_key = "svc-key"
